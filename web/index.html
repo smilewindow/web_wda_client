@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WDA Web 控制台</title>
+  <style>
+    :root { --bg:#0b0b0c; --fg:#e7e7e9; --panel:#16161a; --line:#2a2a2f; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    #wrap{display:flex;justify-content:center;align-items:center;min-height:100%}
+    #phone{position:relative;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45);background:#000}
+    #stream{display:block;max-width:min(450px,92vw);height:auto;background:#000}
+    #overlay{position:absolute;left:0;top:0;pointer-events:auto}
+    #hud{position:fixed;left:12px;top:12px;background:rgba(22,22,26,.75);backdrop-filter:saturate(1.2) blur(6px);border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:flex;gap:10px;align-items:center}
+    #toolbar{position:fixed;left:12px;bottom:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .btn{padding:8px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:pointer}
+    .btn:active{transform:translateY(1px)}
+    .pill{padding:4px 8px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12px}
+    .muted{opacity:.8}
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <span class="pill" id="hud-api">API: <code class="muted"></code></span>
+    <span class="pill" id="hud-size">—</span>
+  </div>
+
+  <div id="wrap">
+    <div id="phone">
+      <img id="stream" alt="iPhone Stream" />
+      <canvas id="overlay"></canvas>
+    </div>
+  </div>
+
+  <div id="toolbar">
+    <button class="btn" id="btn-home">Home</button>
+    <button class="btn" id="btn-lock">Lock</button>
+    <button class="btn" id="btn-vol-up">Vol +</button>
+    <button class="btn" id="btn-vol-down">Vol −</button>
+    <button class="btn" id="btn-reload">重载</button>
+  </div>
+
+  <script>
+    // ─────────────────────────────────────────────────────────────────────
+    // 基础配置：自动推断 API（可用 ?api= 替换），默认同主机 7000 端口
+    // ─────────────────────────────────────────────────────────────────────
+    function getParam(name){const u=new URL(location.href);return u.searchParams.get(name)}
+    const API = getParam('api') || `${location.protocol}//${location.hostname}:7000`;
+    const HUD_API = document.querySelector('#hud-api code');
+    HUD_API.textContent = API;
+
+    const img = document.getElementById('stream');
+    const canvas = document.getElementById('overlay');
+    const ctx = canvas.getContext('2d');
+
+    const hudSize = document.getElementById('hud-size');
+
+    // 设备尺寸（pt 与 px），用于坐标映射
+    let devicePt = { w:null, h:null };
+    let devicePx = { w:null, h:null };
+
+    // 交互状态
+    let isDown = false;
+    let dragBuffer = [];
+    let downAt = 0;
+    let downClient = {x:0,y:0};
+
+    // 为了跟手：使用 WebSocket 发送轨迹（抬起时一次性在后端分段注入）
+    let ws;
+    function openWS(){
+      ws = new WebSocket(API.replace('http','ws') + '/ws');
+      ws.onopen = ()=> console.log('[WS] connected');
+      ws.onclose = ()=> { console.log('[WS] closed, retry in 1.5s'); setTimeout(openWS,1500); };
+      ws.onerror = e => console.warn('[WS] error', e);
+      ws.onmessage = ev => { /* ack ignored */ };
+    }
+    openWS();
+
+    async function fetchDeviceInfo(){
+      const r = await fetch(API + '/api/device-info');
+      const j = await r.json();
+      if (j.size_pt) devicePt = { w:j.size_pt.w, h:j.size_pt.h };
+      if (j.size_px) devicePx = { w:j.size_px.w, h:j.size_px.h };
+      hudSize.textContent = `pt ${devicePt.w||'-'}×${devicePt.h||'-'} | px ${devicePx.w}×${devicePx.h}`;
+      resizeOverlay();
+    }
+
+    // 让 overlay 与 <img> 渲染后的尺寸吻合
+    function resizeOverlay(){
+      const rect = img.getBoundingClientRect();
+      canvas.width = rect.width; canvas.height = rect.height;
+      canvas.style.width = rect.width + 'px';
+      canvas.style.height = rect.height + 'px';
+      canvas.style.left = img.offsetLeft + 'px';
+      canvas.style.top = img.offsetTop + 'px';
+    }
+
+    // 画面上坐标 → 设备坐标（优先 pt，退化到 px）
+    function toDevicePt(clientX, clientY){
+      const rect = img.getBoundingClientRect();
+      const xOnImg = clientX - rect.left;
+      const yOnImg = clientY - rect.top;
+      const basisW = devicePt.w || devicePx.w || rect.width;
+      const basisH = devicePt.h || devicePx.h || rect.height;
+      const scaleX = basisW / rect.width;
+      const scaleY = basisH / rect.height;
+      return { x: xOnImg * scaleX, y: yOnImg * scaleY, rect };
+    }
+
+    // 简单的指示点（可注释掉）
+    function drawDot(x,y){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.fill();
+    }
+
+    // 手势：鼠标
+    canvas.addEventListener('mousedown', (e)=>{
+      isDown = true; downAt = performance.now();
+      const {x,y} = toDevicePt(e.clientX, e.clientY);
+      dragBuffer = [{x,y}];
+      downClient = {x:e.clientX, y:e.clientY};
+      if (ws?.readyState === 1) ws.send(JSON.stringify({type:'drag-start', pt:{x,y}}));
+    });
+
+    canvas.addEventListener('mousemove', (e)=>{
+      if (!isDown) return;
+      const p = toDevicePt(e.clientX, e.clientY);
+      dragBuffer.push({x:p.x, y:p.y});
+      if (ws?.readyState === 1) ws.send(JSON.stringify({type:'drag-move', pt:{x:p.x, y:p.y}}));
+      // 视觉反馈
+      drawDot(e.clientX - p.rect.left, e.clientY - p.rect.top);
+    });
+
+    window.addEventListener('mouseup', (e)=>{
+      if (!isDown) return; isDown = false;
+      const p = toDevicePt(e.clientX, e.clientY);
+      if (ws?.readyState === 1) ws.send(JSON.stringify({type:'drag-end', pt:{x:p.x, y:p.y}, segDuration:0.08}));
+
+      // 点击判定（位移小 + 时间短）
+      const dx = e.clientX - downClient.x;
+      const dy = e.clientY - downClient.y;
+      const dist2 = dx*dx + dy*dy;
+      const dur = performance.now() - downAt;
+      if (dist2 < 36 && dur < 220) {
+        // 小抖动视作点击
+        fetch(API + '/api/tap', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({x:p.x, y:p.y})
+        });
+      }
+
+      // 底部上滑 → 触发 Home（可选增强：不影响已有拖拽注入）
+      const rect = p.rect; const startY = downClient.y - rect.top; const endY = e.clientY - rect.top;
+      const isFromBottom = startY > rect.height * 0.92; // 底部 8%
+      const movedUpEnough = (startY - endY) > rect.height * 0.12; // 上滑超过 12%
+      if (isFromBottom && movedUpEnough) {
+        fetch(API + '/api/pressButton', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:'home'}) });
+      }
+
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+    });
+
+    // 双击 ≈ 双击触发两次 tap（iOS 无系统级 doubleTap 端点）
+    canvas.addEventListener('dblclick', (e)=>{
+      const p = toDevicePt(e.clientX, e.clientY);
+      const body = JSON.stringify({x:p.x, y:p.y});
+      fetch(API + '/api/tap', {method:'POST', headers:{'Content-Type':'application/json'}, body});
+      setTimeout(()=>fetch(API + '/api/tap', {method:'POST', headers:{'Content-Type':'application/json'}, body}), 80);
+    });
+
+    // 触控（可选）：简单映射到鼠标事件，便于触屏电脑
+    canvas.addEventListener('touchstart', (e)=>{
+      const t = e.touches[0]; if (!t) return; e.preventDefault();
+      const m = new MouseEvent('mousedown', {clientX:t.clientX, clientY:t.clientY});
+      canvas.dispatchEvent(m);
+    }, {passive:false});
+    canvas.addEventListener('touchmove', (e)=>{
+      const t = e.touches[0]; if (!t) return; e.preventDefault();
+      const m = new MouseEvent('mousemove', {clientX:t.clientX, clientY:t.clientY});
+      canvas.dispatchEvent(m);
+    }, {passive:false});
+    canvas.addEventListener('touchend', (e)=>{
+      const t = e.changedTouches[0]; if (!t) return; e.preventDefault();
+      const m = new MouseEvent('mouseup', {clientX:t.clientX, clientY:t.clientY});
+      window.dispatchEvent(m);
+    }, {passive:false});
+
+    // 顶部按钮
+    document.getElementById('btn-home').onclick = ()=>{
+      fetch(API + '/api/pressButton', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:'home'})});
+    };
+    document.getElementById('btn-lock').onclick = ()=>{
+      fetch(API + '/api/pressButton', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:'lock'})});
+    };
+    document.getElementById('btn-vol-up').onclick = ()=>{
+      fetch(API + '/api/pressButton', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:'volumeUp'})});
+    };
+    document.getElementById('btn-vol-down').onclick = ()=>{
+      fetch(API + '/api/pressButton', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:'volumeDown'})});
+    };
+    document.getElementById('btn-reload').onclick = ()=>{
+      // 重新加载流并刷新设备尺寸
+      img.src = API + '/stream' + '#' + Math.random();
+      fetchDeviceInfo();
+    };
+
+    // 初始加载
+    img.src = API + '/stream?' + Date.now();
+    img.onload = ()=> resizeOverlay();
+    window.onresize = ()=> resizeOverlay();
+    fetchDeviceInfo();
+  </script>
+</body>
+</html>
+
