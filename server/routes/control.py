@@ -598,194 +598,60 @@ async def api_long_press(payload: LongPressRequest):
 @router.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
     await ws.accept()
-    try:
-        peer = f"{ws.client.host}:{ws.client.port}" if ws.client else "-"
-    except Exception:
-        peer = "-"
+    peer = f"{ws.client.host}:{ws.client.port}" if ws.client else "-"
     core.logger.info(f"WS connect from {peer}")
 
-    buffer: List[Dict[str, float]] = []
-    # WS real-time pump state (per-connection, per-drag)
-    pump_task: Optional[Any] = None  # avoid referencing asyncio in annotations before import
-    pump_state: Dict[str, Any] = {
-        "active": False,
-        "last": None,      # type: Optional[Dict[str,float]]
-        "target": None,    # type: Optional[Dict[str,float]]
-        "inflight": False,
-        "hz": 30.0,
-        "dt": 1.0/30.0,
-        "minStep": 1.5,
-        "endRequested": False,
-        # counters for summary
-        "nSegments": 0,
-        "nSkipInflight": 0,
-        "nSkipSmall": 0,
-        "mode": "agg",  # "pump" or "agg"
-    }
     try:
-        while True:
-            msg = await ws.receive_text()
-            data = json.loads(msg)  # type: ignore
-            t = data.get("type")
-            if t == "tap":
-                core.logger.info(f"ws tap x={data.get('x')} y={data.get('y')}")
-                try:
-                    await _handle_tap(float(data["x"]), float(data["y"]))
-                except Exception as _e:
-                    core.logger.warning(f"ws tap error: {_e}")
-            elif t == "pressButton":
-                await api_press({"name": data.get("name", "home")})
-            elif t == "drag-start":
-                buffer = [data["pt"]]
-                # Decide mode: real-time pump or aggregate (default agg if not specified)
-                mode = data.get("mode") or ("pump" if ("hz" in data or "minStep" in data) else "agg")
-                pump_state["mode"] = mode
-                if mode == "pump":
-                    # sanitize params
-                    hz = float(data.get("hz", 30.0) or 30.0)
-                    hz = max(10.0, min(120.0, hz))
-                    min_step = float(data.get("minStep", 1.5) or 1.5)
-                    min_step = max(0.2, min(10.0, min_step))
-                    pump_state.update({
-                        "active": True,
-                        "last": data["pt"],
-                        "target": data["pt"],
-                        "inflight": False,
-                        "hz": hz,
-                        "dt": 1.0 / hz,
-                        "minStep": min_step,
-                        "endRequested": False,
-                        "nSegments": 0,
-                        "nSkipInflight": 0,
-                        "nSkipSmall": 0,
-                    })
-                    core.logger.info(f"ws pump-start hz={hz} minStep={min_step} at={data['pt']}")
-                    # launch worker
-                    if pump_task is not None and not pump_task.done():
-                        try:
-                            pump_state["active"] = False
-                            pump_state["endRequested"] = True
-                            await pump_task
-                        except Exception:
-                            pass
-                    pump_task = asyncio.create_task(_ws_pump_worker(pump_state))  # type: ignore
-                else:
-                    core.logger.info(f"ws drag-start(agg) at {data['pt']}")
-            elif t == "drag-move":
-                buffer.append(data["pt"])  # track always for potential agg
-                if pump_state.get("mode") == "pump" and pump_state.get("active"):
-                    pump_state["target"] = data["pt"]
-            elif t == "drag-end":
-                buffer.append(data["pt"])  # last point
-                if pump_state.get("mode") == "pump" and pump_state.get("active"):
-                    pump_state["target"] = data["pt"]
-                    pump_state["endRequested"] = True
-                    if pump_task is not None:
-                        try:
-                            await pump_task
-                        except Exception as e:
-                            core.logger.warning(f"ws pump task end error: {e}")
-                    # summarize
-                    core.logger.info(
-                        f"ws pump-stop segments={pump_state.get('nSegments',0)} skipInflight={pump_state.get('nSkipInflight',0)} skipSmall={pump_state.get('nSkipSmall',0)}"
-                    )
-                    pump_state["active"] = False
-                else:
-                    core.logger.info(f"ws drag-end(trace), points={len(buffer)}")
-                    # 估计总时长：按 16ms/段 近似，或允许客户端传 totalDurationMs
-                    total_dur = int(float(data.get("totalDurationMs", 0)) or 0)
-                    await api_drag_trace({"points": buffer, "totalDurationMs": total_dur})
-                buffer = []
-            # ack best-effort; ignore races on close
+        while ws.client_state == WebSocketState.CONNECTED:
             try:
+                msg = await ws.receive_text()
+                data = json.loads(msg)
+                cmd_type = data.get("type")
+                payload = data.get("payload", {})
+                core.logger.info(f"WS recv cmd={cmd_type} payload={payload}")
+
+                if cmd_type == "tap":
+                    await _handle_tap(float(payload["x"]), float(payload["y"]))
+                
+                elif cmd_type == "longPress":
+                    dur_ms = payload.get("durationMs", 600)
+                    duration_sec = max(0.05, float(dur_ms) / 1000.0)
+                    await _handle_long_press(float(payload["x"]), float(payload["y"]), duration_sec)
+
+                elif cmd_type == "drag":
+                    f = {"x": float(payload["from"]["x"]), "y": float(payload["from"]["y"])}
+                    t = {"x": float(payload["to"]["x"]), "y": float(payload["to"]["y"])}
+                    duration = float(payload.get("duration", 0.12))
+                    client = await core.get_http_client()
+                    await _perform_drag_with_fallback(client, f, t, duration)
+
+                elif cmd_type == "pressButton":
+                    name = payload.get("name", "home")
+                    client = await core.get_http_client()
+                    sid = await ensure_session(client)
+                    await _wda_post_with_retry(client, sid, "/wda/pressButton", {"name": name}, timeout=10)
+                
+                else:
+                    core.logger.warning(f"WS unhandled command type: {cmd_type}")
+                    continue
+
+                # Acknowledge successful processing
                 if ws.client_state == WebSocketState.CONNECTED:
-                    await ws.send_text("{\"ok\":true}")
-            except Exception:
-                break
+                    await ws.send_text(json.dumps({"ok": True, "for_cmd": cmd_type}))
+
+            except json.JSONDecodeError:
+                core.logger.warning(f"WS received invalid JSON")
+            except Exception as e:
+                core.logger.error(f"WS error processing command: {e}")
+                if ws.client_state == WebSocketState.CONNECTED:
+                    try:
+                        await ws.send_text(json.dumps({"ok": False, "error": str(e)}))
+                    except Exception:
+                        pass
+
     except WebSocketDisconnect:
         core.logger.info(f"WS disconnect from {peer}")
     except Exception as e:
-        core.logger.info(f"WS disconnect from {peer} err={e}")
-        try:
-            if ws.client_state != WebSocketState.DISCONNECTED:
-                await ws.close()
-        except Exception:
-            pass
+        core.logger.error(f"WS connection failed for {peer}: {e}")
     finally:
-        # Ensure pump task is stopped/cancelled to avoid coroutine leaks
-        try:
-            pump_state["active"] = False
-            pump_state["endRequested"] = True
-        except Exception:
-            pass
-        try:
-            if pump_task is not None and not pump_task.done():
-                pump_task.cancel()
-                try:
-                    await pump_task
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-
-
-async def _ws_pump_worker(state: Dict[str, Any]):
-    """Tick worker for real-time pump over WS. Sequential; applies backpressure by
-    skipping ticks while inflight and merging moves by only keeping latest target."""
-    hz = float(state.get("hz", 30.0) or 30.0)
-    dt = float(state.get("dt", 1.0 / max(1.0, hz)))
-    min_step = float(state.get("minStep", 1.5) or 1.5)
-
-    client = await core.get_http_client()
-    while state.get("active", False) and not state.get("endRequested", False):
-        t0 = asyncio.get_event_loop().time()
-        # backpressure: if inflight, skip this tick
-        if state.get("inflight", False):
-            state["nSkipInflight"] = state.get("nSkipInflight", 0) + 1
-            await asyncio.sleep(dt)
-            continue
-
-        last = state.get("last")
-        target = state.get("target")
-        if not last or not target:
-            await asyncio.sleep(dt)
-            continue
-        dx = float(target["x"]) - float(last["x"])
-        dy = float(target["y"]) - float(last["y"])
-        if (dx * dx + dy * dy) < (min_step * min_step):
-            state["nSkipSmall"] = state.get("nSkipSmall", 0) + 1
-            await asyncio.sleep(dt)
-            continue
-
-        # emit one segment
-        state["inflight"] = True
-        try:
-            await _perform_drag_with_fallback(client, last, target, dt)
-            state["last"] = target
-            state["nSegments"] = state.get("nSegments", 0) + 1
-        except Exception as e:
-            core.logger.warning(f"ws pump segment error: {e}")
-            # in case of fatal error we break out early
-            break
-        finally:
-            state["inflight"] = False
-
-        # adjust sleep to keep approximate cadence
-        elapsed = asyncio.get_event_loop().time() - t0
-        await asyncio.sleep(max(0.0, dt - elapsed))
-
-    # flush final segment if end requested and gap still large
-    if state.get("endRequested", False):
-        last = state.get("last")
-        target = state.get("target")
-        if last and target:
-            dx = float(target["x"]) - float(last["x"])
-            dy = float(target["y"]) - float(last["y"])
-            if (dx * dx + dy * dy) >= (min_step * min_step):
-                try:
-                    await _perform_drag_with_fallback(client, last, target, dt)
-                    state["nSegments"] = state.get("nSegments", 0) + 1
-                    state["last"] = target
-                except Exception as e:
-                    core.logger.warning(f"ws pump final segment error: {e}")
+        core.logger.info(f"WS closing for {peer}")
