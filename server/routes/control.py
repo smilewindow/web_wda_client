@@ -269,7 +269,8 @@ async def api_drag_pump(payload: Dict[str, Any]):
                     except httpx.HTTPStatusError as e2:
                         if e2.response is not None and e2.response.status_code == 404:
                             core.logger.info("drag-pump segment fallback to JSONWP /touch/perform")
-                            dx = int(b["x"] - a["x"]) ; dy = int(b["y"] - a["y"]) 
+                            dx = int(b["x"] - a["x"])
+                            dy = int(b["y"] - a["y"])
                             actions_tw = [
                                 {"action": "press", "options": {"x": int(a["x"]), "y": int(a["y"]) }},
                                 {"action": "moveTo", "options": {"x": dx, "y": dy}},
@@ -337,7 +338,8 @@ async def api_drag_trace(payload: Dict[str, Any]):
                 prev = p0
                 for i in range(1, len(points)):
                     pi = points[i]
-                    dx = int(pi["x"] - prev["x"]) ; dy = int(pi["y"] - prev["y"]) 
+                    dx = int(pi["x"] - prev["x"])
+                    dy = int(pi["y"] - prev["y"])
                     actions_tw.append({"action": "moveTo", "options": {"x": dx, "y": dy}})
                     prev = pi
                 actions_tw.append({"action": "release", "options": {}})
@@ -380,7 +382,8 @@ async def _perform_drag_with_fallback(client: httpx.AsyncClient, f: Dict[str, fl
         return r.json()
 
     async def do_jsonwp():
-        dx = int(t["x"] - f["x"]) ; dy = int(t["y"] - f["y"])
+        dx = int(t["x"] - f["x"])
+        dy = int(t["y"] - f["y"])
         actions_tw = [
             {"action": "press", "options": {"x": int(f["x"]), "y": int(f["y"]) }},
             {"action": "moveTo", "options": {"x": dx, "y": dy}},
@@ -452,18 +455,18 @@ async def stream():
 
     client = await core.get_http_client()
     for path in candidates:
-            url = f"{core.MJPEG_URL}{path}"
-            try:
-                async with client.stream("GET", url, timeout=None) as upstream:
-                    ctype = upstream.headers.get("Content-Type", "")
-                    if not ctype.lower().startswith("multipart/x-mixed-replace"):
-                        continue
-                    chosen_url = url
-                    chosen_ctype = ctype
-                    break
-            except Exception as e:
-                last_err = e
-                continue
+        url = f"{core.MJPEG_URL}{path}"
+        try:
+            async with client.stream("GET", url, timeout=None) as upstream:
+                ctype = upstream.headers.get("Content-Type", "")
+                if not ctype.lower().startswith("multipart/x-mixed-replace"):
+                    continue
+                chosen_url = url
+                chosen_ctype = ctype
+                break
+        except Exception as e:
+            last_err = e
+            continue
 
     if not chosen_url or not chosen_ctype:
         msg = f"MJPEG connect failed for {core.MJPEG_URL}: {last_err}"
@@ -748,8 +751,9 @@ async def _ws_pump_worker(state: Dict[str, Any]):
         if not last or not target:
             await asyncio.sleep(dt)
             continue
-        dx = float(target["x"]) - float(last["x"]) ; dy = float(target["y"]) - float(last["y"])
-        if (dx*dx + dy*dy) < (min_step * min_step):
+        dx = float(target["x"]) - float(last["x"])
+        dy = float(target["y"]) - float(last["y"])
+        if (dx * dx + dy * dy) < (min_step * min_step):
             state["nSkipSmall"] = state.get("nSkipSmall", 0) + 1
             await asyncio.sleep(dt)
             continue
@@ -776,8 +780,9 @@ async def _ws_pump_worker(state: Dict[str, Any]):
         last = state.get("last")
         target = state.get("target")
         if last and target:
-            dx = float(target["x"]) - float(last["x"]) ; dy = float(target["y"]) - float(last["y"])
-            if (dx*dx + dy*dy) >= (min_step * min_step):
+            dx = float(target["x"]) - float(last["x"])
+            dy = float(target["y"]) - float(last["y"])
+            if (dx * dx + dy * dy) >= (min_step * min_step):
                 try:
                     await _perform_drag_with_fallback(client, last, target, dt)
                     state["nSegments"] = state.get("nSegments", 0) + 1
