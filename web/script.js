@@ -381,7 +381,175 @@
     ELEMENTS.gestIntensity?.addEventListener('change', () => { localStorage.setItem(STORAGE_KEYS.gestFlickIntensity, String(ELEMENTS.gestIntensity.value || 'medium')); });
 
     // Appium Panel (HTTP)
-    // ... (omitted for brevity, no changes from original)
+    ELEMENTS.apClose?.addEventListener('click', () => {
+      if (ELEMENTS.appiumPanel) ELEMENTS.appiumPanel.style.display = 'none';
+    });
+    ELEMENTS.apScale?.addEventListener('input', () => {
+      if (ELEMENTS.apScaleVal) ELEMENTS.apScaleVal.textContent = ELEMENTS.apScale.value;
+    });
+    ELEMENTS.apFps?.addEventListener('input', () => {
+      if (ELEMENTS.apFpsVal) ELEMENTS.apFpsVal.textContent = ELEMENTS.apFps.value;
+    });
+    ELEMENTS.apQuality?.addEventListener('input', () => {
+      if (ELEMENTS.apQualityVal) ELEMENTS.apQualityVal.textContent = ELEMENTS.apQuality.value;
+    });
+    ELEMENTS.apApply?.addEventListener('click', async () => {
+      if (!ELEMENTS.apBase || !ELEMENTS.apSid) return;
+      const base = ELEMENTS.apBase.value.trim();
+      const sid = ELEMENTS.apSid.value.trim();
+      const settings = {
+        mjpegScalingFactor: Number(ELEMENTS.apScale?.value || 60),
+        mjpegServerFramerate: Number(ELEMENTS.apFps?.value || 30),
+        mjpegServerScreenshotQuality: Number(ELEMENTS.apQuality?.value || 15),
+        shouldWaitForQuiescence: false,
+        waitForIdleTimeout: 0,
+        animationCoolOffTimeout: Number(ELEMENTS.apAco?.value || 0.1)
+      };
+      localStorage.setItem(STORAGE_KEYS.apBase, base);
+      localStorage.setItem(STORAGE_KEYS.apSid, sid);
+      if (ELEMENTS.apUdid) localStorage.setItem(STORAGE_KEYS.apUdid, ELEMENTS.apUdid.value.trim());
+      localStorage.setItem(STORAGE_KEYS.apScale, String(settings.mjpegScalingFactor));
+      localStorage.setItem(STORAGE_KEYS.apFps, String(settings.mjpegServerFramerate));
+      localStorage.setItem(STORAGE_KEYS.apQuality, String(settings.mjpegServerScreenshotQuality));
+      localStorage.setItem(STORAGE_KEYS.apAco, String(settings.animationCoolOffTimeout));
+      try {
+        const r = await fetch(API_BASE + API_ENDPOINTS.appiumSettings, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base, sessionId: sid, settings })
+        });
+        if (!r.ok) {
+          const t = await r.text();
+          toast('应用失败: ' + t.slice(0, 400), 'err');
+        } else {
+          toast('已应用设置', 'ok');
+          streamToastShown = false;
+          if (ELEMENTS.stream) ELEMENTS.stream.src = API_BASE + API_ENDPOINTS.stream + '?' + Date.now();
+          fetchDeviceInfo();
+          if (ELEMENTS.appiumPanel) ELEMENTS.appiumPanel.style.display = 'none';
+        }
+      } catch (err) {
+        toast('网络错误: ' + err, 'err');
+      }
+    });
+    ELEMENTS.apFetch?.addEventListener('click', async () => {
+      if (!ELEMENTS.apBase) return;
+      const base = ELEMENTS.apBase.value.trim();
+      if (!base) { alert('请先填写 Appium Base'); return; }
+      try {
+        let r = await fetch(API_BASE + API_ENDPOINTS.appiumLastSession + '?base=' + encodeURIComponent(base));
+        let j = await r.json();
+        if (j.ok && j.sessionId) {
+          if (ELEMENTS.apSid) ELEMENTS.apSid.value = j.sessionId;
+          localStorage.setItem(STORAGE_KEYS.apSid, j.sessionId);
+          toast('已获取会话: ' + j.sessionId, 'ok');
+          streamToastShown = false;
+          if (ELEMENTS.stream) ELEMENTS.stream.src = API_BASE + API_ENDPOINTS.stream + '?' + Date.now();
+          fetchDeviceInfo();
+          return;
+        }
+        r = await fetch(API_BASE + API_ENDPOINTS.appiumSessions + '?base=' + encodeURIComponent(base));
+        j = await r.json();
+        if (j.sessions && j.sessions.length) {
+          const sid = j.sessions[j.sessions.length - 1];
+          if (ELEMENTS.apSid) ELEMENTS.apSid.value = sid;
+          localStorage.setItem(STORAGE_KEYS.apSid, sid);
+          toast('已获取会话: ' + sid, 'ok');
+          streamToastShown = false;
+          if (ELEMENTS.stream) ELEMENTS.stream.src = API_BASE + API_ENDPOINTS.stream + '?' + Date.now();
+          fetchDeviceInfo();
+        } else {
+          toast('未发现会话，请创建', 'err');
+        }
+      } catch (err) {
+        toast('获取失败: ' + err, 'err');
+      }
+    });
+    ELEMENTS.apCreate?.addEventListener('click', async () => {
+      if (!ELEMENTS.apBase || !ELEMENTS.apUdid) return;
+      const base = ELEMENTS.apBase.value.trim();
+      const udid = ELEMENTS.apUdid.value.trim();
+      if (!base || !udid) { toast('请填写 Base 与 UDID', 'err'); return; }
+      try {
+        const r = await fetch(API_BASE + API_ENDPOINTS.appiumCreate, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base, udid, wdaLocalPort: 8100, mjpegServerPort: 9100, bundleId: 'com.apple.Preferences', noReset: true, extraCaps: {
+            'appium:shouldWaitForQuiescence': false,
+            'appium:waitForIdleTimeout': 0,
+            'appium:animationCoolOffTimeout': Number(ELEMENTS.apAco?.value || 0.1),
+            'appium:showXcodeLog': true,
+            'appium:showIOSLog': false,
+            'appium:logTimestamps': true
+          } })
+        });
+        const j = await r.json();
+        if (r.ok && j.sessionId) {
+          if (ELEMENTS.apSid) ELEMENTS.apSid.value = j.sessionId;
+          localStorage.setItem(STORAGE_KEYS.apSid, j.sessionId);
+          localStorage.setItem(STORAGE_KEYS.apUdid, udid);
+          toast('会话已创建: ' + j.sessionId, 'ok');
+          streamToastShown = false;
+          if (ELEMENTS.stream) ELEMENTS.stream.src = API_BASE + API_ENDPOINTS.stream + '?' + Date.now();
+          fetchDeviceInfo();
+        } else {
+          toast('创建失败: ' + JSON.stringify(j).slice(0, 400), 'err');
+        }
+      } catch (err) {
+        toast('创建失败: ' + err, 'err');
+      }
+    });
+    ELEMENTS.apLoad?.addEventListener('click', async () => {
+      if (!ELEMENTS.apBase || !ELEMENTS.apSid) return;
+      const base = ELEMENTS.apBase.value.trim();
+      const sid = ELEMENTS.apSid.value.trim();
+      if (!base || !sid) { toast('请填写 Base 与 Session', 'err'); return; }
+      try {
+        const r = await fetch(API_BASE + API_ENDPOINTS.appiumSettings + '?base=' + encodeURIComponent(base) + '&sessionId=' + encodeURIComponent(sid));
+        const j = await r.json();
+        if (!r.ok) {
+          toast('读取失败: ' + JSON.stringify(j).slice(0, 400), 'err');
+          return;
+        }
+        const val = j.value || j;
+        if (typeof val.mjpegScalingFactor === 'number' && ELEMENTS.apScale) ELEMENTS.apScale.value = val.mjpegScalingFactor;
+        if (typeof val.mjpegServerFramerate === 'number' && ELEMENTS.apFps) ELEMENTS.apFps.value = val.mjpegServerFramerate;
+        if (typeof val.mjpegServerScreenshotQuality === 'number' && ELEMENTS.apQuality) ELEMENTS.apQuality.value = val.mjpegServerScreenshotQuality;
+        if (ELEMENTS.apScaleVal) ELEMENTS.apScaleVal.textContent = ELEMENTS.apScale?.value;
+        if (ELEMENTS.apFpsVal) ELEMENTS.apFpsVal.textContent = ELEMENTS.apFps?.value;
+        if (ELEMENTS.apQualityVal) ELEMENTS.apQualityVal.textContent = ELEMENTS.apQuality?.value;
+        localStorage.setItem(STORAGE_KEYS.apScale, ELEMENTS.apScale?.value || '');
+        localStorage.setItem(STORAGE_KEYS.apFps, ELEMENTS.apFps?.value || '');
+        localStorage.setItem(STORAGE_KEYS.apQuality, ELEMENTS.apQuality?.value || '');
+        toast('已读取当前设置', 'ok');
+      } catch (err) {
+        toast('读取失败: ' + err, 'err');
+      }
+    });
+    ELEMENTS.apOptimize?.addEventListener('click', async () => {
+      if (!ELEMENTS.apBase || !ELEMENTS.apSid) return;
+      const base = ELEMENTS.apBase.value.trim();
+      const sid = ELEMENTS.apSid.value.trim();
+      if (!base || !sid) { toast('请填写 Base 与 Session', 'err'); return; }
+      const settings = {
+        useFirstMatch: true,
+        snapshotMaxDepth: 20,
+        activeAppDetectionPoint: '200.00,200.00',
+        reduceMotion: true,
+      };
+      try {
+        const r = await fetch(API_BASE + API_ENDPOINTS.appiumSettings, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base, sessionId: sid, settings })
+        });
+        if (!r.ok) {
+          const t = await r.text();
+          toast('WDA 优化失败: ' + t.slice(0, 400), 'err');
+        } else {
+          toast('WDA 优化已下发', 'ok');
+        }
+      } catch (err) {
+        toast('网络错误: ' + err, 'err');
+      }
+    });
 
     // Main canvas/window events
     ELEMENTS.stream?.addEventListener('load', resizeOverlay);
