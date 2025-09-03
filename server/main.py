@@ -44,7 +44,13 @@ async def _shutdown_shared_http():
 @app.middleware("http")
 async def access_log(request: Request, call_next):
     # Colors for readability in dev logs
-    C_RESET = "\x1b[0m"; C_PATH = "\x1b[36m"; C_PARAM = "\x1b[35m"; C_OK = "\x1b[32m"; C_ERR = "\x1b[31m"; C_REQ = "\x1b[33m"; C_RESP = "\x1b[34m"
+    C_RESET = "\x1b[0m"
+    C_PATH = "\x1b[36m"
+    C_PARAM = "\x1b[35m"
+    C_OK = "\x1b[32m"
+    C_ERR = "\x1b[31m"
+    C_REQ = "\x1b[33m"
+    C_RESP = "\x1b[34m"
     start = time.perf_counter()
     method = request.method
     path = request.url.path
