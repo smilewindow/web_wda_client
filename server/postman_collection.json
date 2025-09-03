@@ -1,0 +1,60 @@
+{
+  "info": {
+    "name": "WDA Web Console",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "b5f9a0d6-7d22-4b4f-9a7e-000000000000",
+    "description": "Postman collection for WDA Web Console backend"
+  },
+  "item": [
+    { "name": "Ping", "request": { "method": "GET", "url": "{{baseUrl}}/api/ping" } },
+    { "name": "Device Info", "request": { "method": "GET", "url": "{{baseUrl}}/api/device-info" } },
+    {
+      "name": "Tap",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": { "mode": "raw", "raw": "{\n  \"x\": 100,\n  \"y\": 200\n}" },
+        "url": "{{baseUrl}}/api/tap"
+      }
+    },
+    {
+      "name": "Press Button",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"home\"\n}" },
+        "url": "{{baseUrl}}/api/pressButton"
+      }
+    },
+    {
+      "name": "Drag",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"from\": { \"x\": 10, \"y\": 10 },\n  \"to\":   { \"x\": 300, \"y\": 400 },\n  \"duration\": 0.12\n}"
+        },
+        "url": "{{baseUrl}}/api/drag"
+      }
+    },
+    {
+      "name": "Drag Pump",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"points\": [\n    { \"x\": 10,  \"y\": 10 },\n    { \"x\": 100, \"y\": 100 },\n    { \"x\": 200, \"y\": 300 }\n  ],\n  \"segDuration\": 0.08\n}"
+        },
+        "url": "{{baseUrl}}/api/drag-pump"
+      }
+    },
+    { "name": "MJPEG Start", "request": { "method": "POST", "url": "{{baseUrl}}/api/mjpeg/start" } },
+    { "name": "Stream (GET)", "request": { "method": "GET", "url": "{{baseUrl}}/stream" } }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:7000" }
+  ]
+}
+
