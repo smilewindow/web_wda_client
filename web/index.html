@@ -185,7 +185,9 @@
       // 对 IPv6 字面量加方括号，避免形成 http://::1:7000 这类非法 URL
       return (host.includes(':') && !host.startsWith('[')) ? `[${host}]` : host;
     }
-    const API = getParam('api') || `${location.protocol}//${hostWithBracket(location.hostname)}:7000`;
+    const API = getParam('api') || (location.protocol === 'file:' || !location.hostname
+      ? 'http://127.0.0.1:7000'
+      : `${location.protocol}//${hostWithBracket(location.hostname)}:7000`);
     const HUD_API = document.querySelector('#hud-api code');
     HUD_API.textContent = API;
 
