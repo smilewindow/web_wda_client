@@ -1,4 +1,5 @@
 // 手势识别模块
+var LS = (function(){ try{ return window.localStorage; }catch(_){ return { getItem(){return null;}, setItem(){}, removeItem(){} }; }})();
 let pump = null;
 let isDown = false;
 let downAt = 0;
@@ -11,8 +12,8 @@ let longPressTriggered = false; let longHoldStart = 0; let pressTimer = null;
 let chAtDown = 'appium'; let ptDown = null; let dragStarted = false;
 
 function setMode(text){ if(modePill) modePill.textContent = text; }
-function getPumpHz(){ const v = Number(localStorage.getItem('gest.pump.hz')||30); return Math.max(10, Math.min(120, isFinite(v)?v:30)); }
-function getPumpStep(){ const v = Number(localStorage.getItem('gest.pump.step')||1.5); return Math.max(0.2, Math.min(10, isFinite(v)?v:1.5)); }
+function getPumpHz(){ const v = Number(LS.getItem('gest.pump.hz')||30); return Math.max(10, Math.min(120, isFinite(v)?v:30)); }
+function getPumpStep(){ const v = Number(LS.getItem('gest.pump.step')||1.5); return Math.max(0.2, Math.min(10, isFinite(v)?v:1.5)); }
 function updatePumpPill(){ if (dragModePill) dragModePill.textContent = 'appium(one-shot)'; }
 class WDAAdapter {
   constructor(){ }
@@ -59,7 +60,7 @@ class DragPump {
     this.timer = setTimeout(tick, this.dt);
   }
 }
-function getLongPressMs(){ const v = Number(localStorage.getItem('gest.longpress.ms')||3000); return Math.max(200, isFinite(v)?v:3000); }
+function getLongPressMs(){ const v = Number(LS.getItem('gest.longpress.ms')||3000); return Math.max(200, isFinite(v)?v:3000); }
 function setupInteractHandlers(){
   if (typeof interact === 'undefined') { console.warn('[GEST] interact.js not ready'); return; }
   try{
