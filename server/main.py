@@ -12,10 +12,10 @@ from routes.appium_proxy import router as appium_router
 
 app = FastAPI(title="WDA-Web Console", version="1.0")
 
-# CORS: 允许前端 http://localhost:8080 访问
+# CORS: 允许本地前端跨域访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080"],
+    allow_origins=["http://localhost:8080", "http://127.0.0.1:8080"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
