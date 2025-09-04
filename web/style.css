@@ -1,0 +1,41 @@
+:root { --bg:#0b0b0c; --fg:#e7e7e9; --panel:#16161a; --line:#2a2a2f; --accent:#4da3ff; }
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+#wrap{display:flex;justify-content:center;align-items:center;min-height:100%}
+#phone{position:relative;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45);background:#000}
+/* 让画面自适应窗口，高度受限避免被遮挡（HUD/工具栏预留约 160px） */
+#stream{display:block;max-width:92vw;max-height:calc(100vh - 160px);width:auto;height:auto;background:#000}
+#overlay{position:absolute;left:0;top:0;pointer-events:auto}
+.cursor{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(77,163,255,.25);pointer-events:none;opacity:.9;transform:translate(-9999px,-9999px)}
+#hud{position:fixed;left:12px;top:12px;background:rgba(22,22,26,.75);backdrop-filter:saturate(1.2) blur(6px);border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:flex;gap:10px;align-items:center}
+#toolbar{position:fixed;left:12px;bottom:12px;display:flex;gap:8px;flex-wrap:wrap}
+.btn{padding:8px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.btn:active{transform:translateY(1px)}
+.pill{padding:4px 8px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12px}
+.muted{opacity:.8}
+#appium-panel{position:fixed;right:12px;bottom:12px;width:min(360px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;display:none}
+#appium-panel h4{margin:0 0 8px 0;font-size:14px}
+#appium-panel .row{display:flex;align-items:center;gap:8px;margin:6px 0}
+#appium-panel input[type="text"]{flex:1 1 auto;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)}
+#appium-panel input[type="range"]{flex:1 1 auto}
+#appium-panel .val{width:36px;text-align:right;opacity:.8}
+.toast{position:fixed;right:12px;top:64px;max-width:min(480px,92vw);background:rgba(22,22,26,.95);border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--fg);box-shadow:0 6px 20px rgba(0,0,0,.35);z-index:9999}
+.toast.ok{border-color:#2d6a2d}
+.toast.err{border-color:#8a2b2b}
+.toast .title{font-weight:600;margin-right:8px}
+.toast .close{margin-left:10px;cursor:pointer;opacity:.8}
+#gest-toggle{position:fixed;right:12px;top:12px;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--fg);cursor:pointer;z-index:10000}
+#gest-panel{position:fixed;right:12px;top:52px;width:min(460px,92vw);max-height:70vh;display:none;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:12px;z-index:9999}
+#gest-panel header{display:flex;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
+#gest-panel header input[type="number"]{width:88px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)}
+#gest-panel .body{padding:6px 8px;display:flex;flex-direction:column;gap:8px}
+#gest-log{font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;max-height:38vh;overflow:auto;white-space:pre-wrap;background:#0f0f12;border:1px solid var(--line);border-radius:8px;padding:6px}
+#gest-panel .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#gest-panel .g-sec-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+
+/* Gesture status panel (sample-like) */
+.g-kv{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;padding:6px}
+.g-pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#10233a;border:1px solid #20314b;color:#9fb5d8;font-size:12px}
+.g-section h3{margin:6px 0 4px 2px;font-size:13px;opacity:.9}
+.g-help{font-size:12px;opacity:.9;border:1px solid var(--line);border-radius:8px;padding:6px;background:#0f0f12}
