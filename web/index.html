@@ -34,7 +34,15 @@
     <header>
       <label><input type="checkbox" id="gest-debug"/> 调试日志</label>
       <label><input type="checkbox" id="gest-dryrun"/> 仅日志（不发送）</label>
-      
+
+      <div class="row">
+        <label for="gest-channel" class="muted">通道</label>
+        <select id="gest-channel" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
+          <option value="wda">WDA</option>
+          <option value="appium">Appium</option>
+        </select>
+      </div>
+
       <div class="row">
         <label for="gest-intensity" class="muted">甩动力度</label>
         <select id="gest-intensity" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
