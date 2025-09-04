@@ -26,6 +26,7 @@
     gestDebug: 'gest-debug',
     gestDryRun: 'gest-dryrun',
     gestIntensity: 'gest-intensity',
+    gestChannel: 'gest-channel',
     gestClose: 'gest-close',
     gestClear: 'gest-clear',
     gestLog: 'gest-log',
@@ -57,6 +58,7 @@
     gestDryRun: 'gest.dryrun',
     gestLongPressMs: 'gest.longpress.ms',
     gestFlickIntensity: 'gest.flick.intensity',
+    gestChannel: 'gest.channel',
     apBase: 'ap.base',
     apSid: 'ap.sid',
     apUdid: 'ap.udid',
@@ -69,6 +71,7 @@
   const API_ENDPOINTS = {
     deviceInfo: '/api/device-info',
     stream: '/stream',
+    controlMode: '/api/control-mode',
     // Appium panel still uses HTTP
     appiumSettings: '/api/appium/settings',
     appiumLastSession: '/api/appium/last-session',
@@ -104,6 +107,7 @@
   let devicePx = { w: null, h: null };
   let GEST_LOG = (localStorage.getItem(STORAGE_KEYS.gestDebug) || '0') === '1';
   let DRYRUN = (localStorage.getItem(STORAGE_KEYS.gestDryRun) || '0') === '1';
+  let GEST_CHANNEL = localStorage.getItem(STORAGE_KEYS.gestChannel) || 'wda';
   let streamToastShown = false;
 
   let isDown = false;
@@ -120,6 +124,7 @@
 
   let ws = null;
   let wsReconnectInterval = null;
+  const wsPending = {};
 
   function connectWs() {
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
@@ -141,6 +146,11 @@
       try {
         const data = JSON.parse(event.data);
         log('WS recv:', data);
+        if (data.for_cmd && wsPending[data.for_cmd]) {
+          const dt = performance.now() - wsPending[data.for_cmd];
+          appendGestLog(`${data.for_cmd} 耗时 ${dt.toFixed(1)}ms`);
+          delete wsPending[data.for_cmd];
+        }
         if (data.ok) { /* Command acknowledged */ }
         else { toast(`指令失败: ${data.error || '未知错误'}`, 'err'); }
       } catch (e) {
@@ -175,8 +185,28 @@
       return;
     }
     const cmd = JSON.stringify({ type, payload });
+    wsPending[type] = performance.now();
     ws.send(cmd);
     ev(type, payload);
+  }
+
+  async function applyControlMode(mode) {
+    try {
+      const r = await fetch(API_BASE + API_ENDPOINTS.controlMode, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      });
+      if (r.ok) {
+        const j = await r.json();
+        if (ELEMENTS.gMode) ELEMENTS.gMode.textContent = j.mode || mode;
+      } else {
+        const t = await r.text();
+        appendGestLog('设置模式失败: ' + t.slice(0, 200));
+      }
+    } catch (err) {
+      appendGestLog('设置模式失败: ' + err);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -342,6 +372,9 @@
       const def = (localStorage.getItem(STORAGE_KEYS.gestFlickIntensity) || 'medium');
       ELEMENTS.gestIntensity.value = (['light', 'medium', 'strong'].includes(def) ? def : 'medium');
     }
+    if (ELEMENTS.gestChannel) {
+      ELEMENTS.gestChannel.value = GEST_CHANNEL;
+    }
   }
 
   function loadAppiumPrefs() {
@@ -379,6 +412,11 @@
     ELEMENTS.gestDebug?.addEventListener('change', () => { GEST_LOG = ELEMENTS.gestDebug.checked; localStorage.setItem(STORAGE_KEYS.gestDebug, GEST_LOG ? '1' : '0'); });
     ELEMENTS.gestDryRun?.addEventListener('change', () => { DRYRUN = ELEMENTS.gestDryRun.checked; localStorage.setItem(STORAGE_KEYS.gestDryRun, DRYRUN ? '1' : '0'); });
     ELEMENTS.gestIntensity?.addEventListener('change', () => { localStorage.setItem(STORAGE_KEYS.gestFlickIntensity, String(ELEMENTS.gestIntensity.value || 'medium')); });
+    ELEMENTS.gestChannel?.addEventListener('change', () => {
+      GEST_CHANNEL = ELEMENTS.gestChannel.value;
+      localStorage.setItem(STORAGE_KEYS.gestChannel, GEST_CHANNEL);
+      applyControlMode(GEST_CHANNEL);
+    });
 
     // Appium Panel (HTTP)
     ELEMENTS.apClose?.addEventListener('click', () => {
@@ -565,6 +603,7 @@
         return;
     }
     connectWs();
+    applyControlMode(GEST_CHANNEL);
     addEventListeners();
     loadAppiumPrefs();
     fetchDeviceInfo();

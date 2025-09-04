@@ -192,6 +192,23 @@ async def device_info(noShot: bool = False):
         return JSONResponse({"error": str(e)}, status_code=502)
 
 
+@router.post("/api/control-mode")
+async def api_control_mode(payload: Dict[str, Any]):
+    mode = str(payload.get("mode", "")).strip().lower()
+    mapping = {
+        "wda": "wda",
+        "appium": "actions",
+        "actions": "actions",
+        "jsonwp": "jsonwp",
+        "auto": "auto",
+    }
+    if mode not in mapping:
+        return JSONResponse({"error": f"invalid mode: {mode}"}, status_code=400)
+    core.CURRENT_MODE = mapping[mode]
+    core.logger.info(f"control mode set to {core.CURRENT_MODE}")
+    return {"ok": True, "mode": mode, "current": core.CURRENT_MODE}
+
+
 @router.post("/api/tap")
 async def api_tap(payload: TapRequest):
     try:
