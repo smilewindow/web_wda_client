@@ -12,12 +12,11 @@ from routes.appium_proxy import router as appium_router
 
 app = FastAPI(title="WDA-Web Console", version="1.0")
 
-# CORS: open for dev; tighten in prod
+# CORS: 允许前端 http://localhost:8080 访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_origin_regex=r".*",  # be permissive for local dev (localhost/127.0.0.1/[::1])
-    allow_credentials=False,
+    allow_origins=["http://localhost:8080"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
