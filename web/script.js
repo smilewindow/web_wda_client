@@ -146,10 +146,11 @@
       try {
         const data = JSON.parse(event.data);
         log('WS recv:', data);
-        if (data.for_cmd && wsPending[data.for_cmd]) {
-          const dt = performance.now() - wsPending[data.for_cmd];
-          appendGestLog(`${data.for_cmd} 耗时 ${dt.toFixed(1)}ms`);
-          delete wsPending[data.for_cmd];
+        if (data.id && wsPending[data.id]) {
+          const info = wsPending[data.id];
+          const dt = performance.now() - info.t;
+          appendGestLog(`${info.type} 耗时 ${dt.toFixed(1)}ms`);
+          delete wsPending[data.id];
         }
         if (data.ok) { /* Command acknowledged */ }
         else { toast(`指令失败: ${data.error || '未知错误'}`, 'err'); }
@@ -184,22 +185,26 @@
       toast('WebSocket 未连接，指令无法发送', 'err');
       return;
     }
-    const cmd = JSON.stringify({ type, payload });
-    wsPending[type] = performance.now();
+    const id = Math.random().toString(36).slice(2);
+    const cmd = JSON.stringify({ id, type, payload });
+    wsPending[id] = { t: performance.now(), type };
     ws.send(cmd);
     ev(type, payload);
   }
 
   async function applyControlMode(mode) {
+    const t0 = performance.now();
     try {
       const r = await fetch(API_BASE + API_ENDPOINTS.controlMode, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode })
       });
+      const dt = performance.now() - t0;
       if (r.ok) {
         const j = await r.json();
         if (ELEMENTS.gMode) ELEMENTS.gMode.textContent = j.mode || mode;
+        appendGestLog(`切换通道耗时 ${dt.toFixed(1)}ms`);
       } else {
         const t = await r.text();
         appendGestLog('设置模式失败: ' + t.slice(0, 200));

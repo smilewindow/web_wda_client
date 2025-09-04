@@ -204,8 +204,9 @@ async def api_control_mode(payload: Dict[str, Any]):
     }
     if mode not in mapping:
         return JSONResponse({"error": f"invalid mode: {mode}"}, status_code=400)
+    prev = core.CURRENT_MODE
     core.CURRENT_MODE = mapping[mode]
-    core.logger.info(f"control mode set to {core.CURRENT_MODE}")
+    core.logger.info(f"control mode: {prev} -> {core.CURRENT_MODE}")
     return {"ok": True, "mode": mode, "current": core.CURRENT_MODE}
 
 
@@ -624,8 +625,9 @@ async def ws_endpoint(ws: WebSocket):
                 msg = await ws.receive_text()
                 data = json.loads(msg)
                 cmd_type = data.get("type")
+                cmd_id = data.get("id")
                 payload = data.get("payload", {})
-                core.logger.info(f"WS recv cmd={cmd_type} payload={payload}")
+                core.logger.info(f"WS recv id={cmd_id} cmd={cmd_type} payload={payload}")
 
                 if cmd_type == "tap":
                     await _handle_tap(float(payload["x"]), float(payload["y"]))
@@ -654,7 +656,7 @@ async def ws_endpoint(ws: WebSocket):
 
                 # Acknowledge successful processing
                 if ws.client_state == WebSocketState.CONNECTED:
-                    await ws.send_text(json.dumps({"ok": True, "for_cmd": cmd_type}))
+                    await ws.send_text(json.dumps({"ok": True, "for_cmd": cmd_type, "id": cmd_id}))
 
             except json.JSONDecodeError:
                 core.logger.warning(f"WS received invalid JSON")
@@ -662,7 +664,7 @@ async def ws_endpoint(ws: WebSocket):
                 core.logger.error(f"WS error processing command: {e}")
                 if ws.client_state == WebSocketState.CONNECTED:
                     try:
-                        await ws.send_text(json.dumps({"ok": False, "error": str(e)}))
+                        await ws.send_text(json.dumps({"ok": False, "error": str(e), "id": cmd_id}))
                     except Exception:
                         pass
 
