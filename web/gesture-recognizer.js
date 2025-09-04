@@ -119,70 +119,10 @@ function setupInteractHandlers(){
     });
   }catch(err){ console.warn('[GEST] interact setup error', err); }
 }
-function setupNativeHandlers(){
-  try{
-    const adapter = new WDAAdapter();
-    const onDown = (e)=>{
-      log('down', { x:e.clientX, y:e.clientY, ch:'appium' });
-      isDown = true; downAt = performance.now();
-      const {x,y} = toDevicePt(e.clientX, e.clientY);
-      downClient = {x:e.clientX, y:e.clientY};
-      longPressTriggered = false; longHoldStart = performance.now(); dragStarted = false;
-      chAtDown = 'appium'; ptDown = {x,y};
-      try{ if (pressTimer) clearTimeout(pressTimer); }catch(_e){}
-      pressTimer = setTimeout(()=>{
-        if (!isDown || dragStarted) return;
-        const dx = e.clientX - downClient.x; const dy = e.clientY - downClient.y;
-        if ((dx*dx + dy*dy) <= 64) {
-          longPressTriggered = true;
-          setMode('longPress');
-          ev('longPress', { at:{x:ptDown.x,y:ptDown.y}, durationMs:getLongPressMs() });
-          void adapter.longPress({x:ptDown.x,y:ptDown.y}, getLongPressMs());
-        }
-      }, getLongPressMs());
-      cursorEl && (cursorEl.style.transform = `translate(${e.clientX - img.getBoundingClientRect().left - 5}px, ${e.clientY - img.getBoundingClientRect().top - 5}px)`);
-      setMode('pressing');
-    };
-    const onMove = (e)=>{
-      log('move', { x:e.clientX, y:e.clientY, isDown, dragStarted, longPressTriggered });
-      if (!isDown) return;
-      const p = toDevicePt(e.clientX, e.clientY);
-      const dx = e.clientX - downClient.x; const dy = e.clientY - downClient.y; const dist2 = dx*dx + dy*dy;
-      if (!dragStarted && dist2 > 64 && !longPressTriggered){
-        try{ if (pressTimer) clearTimeout(pressTimer); }catch(_e){}
-        dragStarted = true; pump && pump.start(ptDown); setMode('dragging');
-      }
-      if (dragStarted){
-        pump && pump.move({x:p.x,y:p.y});
-      }
-    };
-    const onUp = (e)=>{
-      log('up', { x:e.clientX, y:e.clientY, isDown, dragStarted, longPressTriggered });
-      if (!isDown) return; isDown = false;
-      const p = toDevicePt(e.clientX, e.clientY);
-      if (pressTimer) try{ clearTimeout(pressTimer); }catch(_e){}
-      pump && pump.stop();
-      const dx = e.clientX - downClient.x; const dy = e.clientY - downClient.y; const dist2 = dx*dx + dy*dy;
-      const dur = performance.now() - downAt;
-      if (longPressTriggered){ /* already sent */ }
-      else if (dist2 <= 64 && dur <= 250) {
-        setMode('tap'); ev('tap', { at: {x:p.x, y:p.y} }); void adapter.tap({x:p.x, y:p.y});
-      } else if (dragStarted) {
-        dragFromTo(ptDown || {x:p.x,y:p.y}, {x:p.x,y:p.y}, dur);
-      }
-      setMode('idle');
-    };
-    canvas.addEventListener('pointerdown', onDown);
-    canvas.addEventListener('pointermove', onMove);
-    canvas.addEventListener('pointerup', onUp);
-    canvas.addEventListener('pointercancel', onUp);
-  }catch(err){ console.warn('[GEST] native setup error', err); }
-}
 function setupGestureRecognizer(){
   updatePumpPill();
   mappingPill && (mappingPill.textContent = 'tap→/api/tap(WDA) · longPress→mobile: touchAndHold · drag(flick/drag)→mobile: dragFromToWithVelocity');
-  if (typeof interact === 'undefined') { try{ setupNativeHandlers(); }catch(_e){} }
-  else { try{ setupInteractHandlers(); } catch(_e){} }
+  try{ setupInteractHandlers(); }catch(_e){}
   if (typeof interact !== 'undefined') {
     const target = canvas;
     let pinchActive = false; let pinchLastScale = 1; let pinchCenter = null;
