@@ -119,8 +119,8 @@ async function dragFromTo(from, to, durMs){
   const argsDyn = calcAppiumDragArgs(from, to, durMs);
   const args = { pressDuration: argsDyn.pressDuration, holdDuration: argsDyn.holdDuration, fromX: Math.round(from.x), fromY: Math.round(from.y), toX: Math.round(to.x), toY: Math.round(to.y), velocity: argsDyn.velocity };
   if (DRYRUN){ log('DRYRUN drag skip send', { from, to, ...args }); ev(isFlick(from, to, durMs) ? 'drag(flick)' : 'drag', { from, to, durationMs: Math.round(durMs), velocity: args.velocity }); return; }
-  await mobileExec('mobile: dragFromToWithVelocity', args, '拖拽');
   ev(isFlick(from, to, durMs) ? 'drag(flick)' : 'drag', { from, to, durationMs: Math.round(durMs), velocity: args.velocity });
+  await mobileExec('mobile: dragFromToWithVelocity', args, '拖拽');
 }
 async function pinchAt(center, scale){
   let s = scale; if (!isFinite(s) || s === 0) s = 1;
