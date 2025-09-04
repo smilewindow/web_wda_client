@@ -39,14 +39,6 @@
         <input id="gest-lp" type="number" min="200" max="5000" step="100" />
       </div>
       <div class="row">
-        <label for="gest-hz" class="muted">Pump Hz</label>
-        <input id="gest-hz" type="number" min="10" max="120" step="5" />
-      </div>
-      <div class="row">
-        <label for="gest-step" class="muted">步长(pt)</label>
-        <input id="gest-step" type="number" min="0.2" max="10" step="0.1" />
-      </div>
-      <div class="row">
         <label for="gest-intensity" class="muted">甩动力度</label>
         <select id="gest-intensity" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
           <option value="light">轻</option>
@@ -72,7 +64,6 @@
           • tap: 按下→抬起 < 250ms 且位移 < 8px
           • longPress: 按住 ≥ 3000ms 且位移 < 8px（可在面板调整）
           • drag/swipe: 位移 ≥ 8px；swipe 需 <= 250ms
-          • DragPump: 默认 30Hz，将 last→target 切段注入，时长≈33ms
           • 坐标映射：根据设备 pt/px 自动换算
         </div>
       </div>
