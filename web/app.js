@@ -153,66 +153,6 @@ function drawDot(x,y){
   cursorEl.style.transform = `translate(${Math.round(x-5)}px, ${Math.round(y-5)}px)`;
 }
 
-// 使用 interact.js 统一处理 down/move/up（tap/long-press/drag）
-let longPressTriggered = false; let longHoldStart = 0; let pressTimer = null;
-let chAtDown = 'appium'; let ptDown = null; let dragStarted = false;
-
-// 适配器（仍沿用名称），内部仅走 Appium 通道
-class WDAAdapter {
-  constructor(){ }
-  async tap(pt){
-    // 统一走 tapAt（现仅 Appium 通道）
-    return tapAt(pt.x, pt.y);
-  }
-  async longPress(pt, durationMs){
-    // 统一走 longPressAt，自动按通道选择实现
-    const dur = Math.max(200, Math.round(durationMs||600));
-    return longPressAt(pt.x, pt.y, dur);
-  }
-  async drag(from, to, durationMs, meta={}){
-    const durSec = Math.max(0.03, (durationMs||80)/1000);
-    const dx = (to.x - from.x), dy = (to.y - from.y);
-    const dist = Math.hypot(dx, dy);
-    const speed = dist / durSec; // pt/s
-    const seq = (meta && typeof meta.seq==='number') ? meta.seq : undefined;
-    ev('drag@pump', { seq, from, to, durationMs: Math.round(durSec*1000), speed: Math.round(speed) });
-    // 仅保留 Appium 通道。拖拽由抬起时一次性发送（见交互逻辑）。
-    if (GEST_LOG) log('[pump] segment ignored (appium-only mode)');
-    return;
-  }
-}
-
-class DragPump {
-  constructor(adapter, { hz=30, minStep=1.5 }={}){
-    this.adapter = adapter; this.hz = hz; this.dt = 1000/hz; this.minStep = minStep;
-    this.active = false; this.last = null; this.target = null; this.timer = null; this.seq = 0;
-  }
-  setHz(hz){ this.hz = Math.max(1, Number(hz)||30); this.dt = 1000/this.hz; }
-  setMinStep(v){ this.minStep = Math.max(0.1, Number(v)||1.5); }
-  start(at){ this.active = true; this.last = at; this.target = at; this.seq = 0; this._loop(); }
-  move(to){ this.target = to; }
-  stop(){ this.active = false; }
-  _loop(){
-    const tick = async ()=>{
-      if (!this.active) return;
-      const t0 = performance.now();
-      if (this.last && this.target){
-        const dx = this.target.x - this.last.x; const dy = this.target.y - this.last.y;
-        const d2 = dx*dx + dy*dy;
-        if (d2 >= this.minStep*this.minStep){
-          try{ void this.adapter.drag(this.last, this.target, this.dt, { seq: this.seq++ }).catch(()=>{}); }
-          catch(_e){}
-          this.last = this.target;
-        }
-      }
-      const el = performance.now() - t0;
-      const wait = Math.max(0, this.dt - el);
-      this.timer = setTimeout(tick, wait);
-    };
-    this.timer = setTimeout(tick, this.dt);
-  }
-}
-
 // 顶部按钮
 document.getElementById('btn-home').onclick = ()=>{ void safeFetch(API + '/api/pressButton', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:'home'})}, 'Home'); };
 document.getElementById('btn-lock').onclick = ()=>{ void safeFetch(API + '/api/pressButton', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:'lock'})}, '锁屏'); };
