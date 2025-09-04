@@ -59,8 +59,6 @@ function syncGestPanel(){
   const cbDbg = document.getElementById('gest-debug');
   const cbDry = document.getElementById('gest-dryrun');
   const ipLP = document.getElementById('gest-lp');
-  const ipHz = document.getElementById('gest-hz');
-  const ipStep = document.getElementById('gest-step');
   const ipIntensity = document.getElementById('gest-intensity');
   if (!p) return;
   if (cbDbg){ cbDbg.checked = GEST_LOG; cbDbg.onchange = ()=>{ GEST_LOG = cbDbg.checked; LS.setItem('gest.debug', GEST_LOG?'1':'0'); }; }
@@ -70,8 +68,6 @@ function syncGestPanel(){
     ipLP.value = String(Number(LS.getItem('gest.longpress.ms')||def));
     ipLP.onchange = ()=>{ const v = Math.max(200, Math.min(5000, Number(ipLP.value)||def)); LS.setItem('gest.longpress.ms', String(v)); ipLP.value = String(v); };
   }
-  if (ipHz){ ipHz.value = String(getPumpHz()); ipHz.onchange = ()=>{ const v = Math.max(10, Math.min(120, Number(ipHz.value)||30)); LS.setItem('gest.pump.hz', String(v)); ipHz.value = String(v); updatePumpPill(); if (pump && typeof pump.setHz==='function') pump.setHz(v); }; }
-  if (ipStep){ ipStep.value = String(getPumpStep()); ipStep.onchange = ()=>{ const v = Math.max(0.2, Math.min(10, Number(ipStep.value)||1.5)); LS.setItem('gest.pump.step', String(v)); ipStep.value = String(v); updatePumpPill(); if (pump && typeof pump.setMinStep==='function') pump.setMinStep(v); }; }
   // 已移除 press 时长设置
   if (ipIntensity){
     const def = (LS.getItem('gest.flick.intensity')||'medium');
