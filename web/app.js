@@ -24,8 +24,9 @@ let devicePx = { w:null, h:null };
 
 // 轻量通知与包装请求 + 手势调试面板
 // 调试日志默认关闭：只显示高层手势（tap/press/drag/swipe）
-let GEST_LOG = (localStorage.getItem('gest.debug')||'0') === '1';
-let DRYRUN = (localStorage.getItem('gest.dryrun')||'0') === '1'; // 1=仅日志，不发送控制请求
+var LS = (function(){ try{ return window.localStorage; }catch(_){ return { getItem(){return null;}, setItem(){}, removeItem(){} }; }})();
+let GEST_LOG = (LS.getItem('gest.debug')||'0') === '1';
+let DRYRUN = (LS.getItem('gest.dryrun')||'0') === '1'; // 1=仅日志，不发送控制请求
 const logBox = document.getElementById('gest-log');
 function appendGestLog(obj){
   try{
@@ -62,20 +63,20 @@ function syncGestPanel(){
   const ipStep = document.getElementById('gest-step');
   const ipIntensity = document.getElementById('gest-intensity');
   if (!p) return;
-  if (cbDbg){ cbDbg.checked = GEST_LOG; cbDbg.onchange = ()=>{ GEST_LOG = cbDbg.checked; localStorage.setItem('gest.debug', GEST_LOG?'1':'0'); }; }
-  if (cbDry){ cbDry.checked = DRYRUN; cbDry.onchange = ()=>{ DRYRUN = cbDry.checked; localStorage.setItem('gest.dryrun', DRYRUN?'1':'0'); }; }
+  if (cbDbg){ cbDbg.checked = GEST_LOG; cbDbg.onchange = ()=>{ GEST_LOG = cbDbg.checked; LS.setItem('gest.debug', GEST_LOG?'1':'0'); }; }
+  if (cbDry){ cbDry.checked = DRYRUN; cbDry.onchange = ()=>{ DRYRUN = cbDry.checked; LS.setItem('gest.dryrun', DRYRUN?'1':'0'); }; }
   if (ipLP){
     const def = 3000;
-    ipLP.value = String(Number(localStorage.getItem('gest.longpress.ms')||def));
-    ipLP.onchange = ()=>{ const v = Math.max(200, Math.min(5000, Number(ipLP.value)||def)); localStorage.setItem('gest.longpress.ms', String(v)); ipLP.value = String(v); };
+    ipLP.value = String(Number(LS.getItem('gest.longpress.ms')||def));
+    ipLP.onchange = ()=>{ const v = Math.max(200, Math.min(5000, Number(ipLP.value)||def)); LS.setItem('gest.longpress.ms', String(v)); ipLP.value = String(v); };
   }
-  if (ipHz){ ipHz.value = String(getPumpHz()); ipHz.onchange = ()=>{ const v = Math.max(10, Math.min(120, Number(ipHz.value)||30)); localStorage.setItem('gest.pump.hz', String(v)); ipHz.value = String(v); updatePumpPill(); if (pump && typeof pump.setHz==='function') pump.setHz(v); }; }
-  if (ipStep){ ipStep.value = String(getPumpStep()); ipStep.onchange = ()=>{ const v = Math.max(0.2, Math.min(10, Number(ipStep.value)||1.5)); localStorage.setItem('gest.pump.step', String(v)); ipStep.value = String(v); updatePumpPill(); if (pump && typeof pump.setMinStep==='function') pump.setMinStep(v); }; }
+  if (ipHz){ ipHz.value = String(getPumpHz()); ipHz.onchange = ()=>{ const v = Math.max(10, Math.min(120, Number(ipHz.value)||30)); LS.setItem('gest.pump.hz', String(v)); ipHz.value = String(v); updatePumpPill(); if (pump && typeof pump.setHz==='function') pump.setHz(v); }; }
+  if (ipStep){ ipStep.value = String(getPumpStep()); ipStep.onchange = ()=>{ const v = Math.max(0.2, Math.min(10, Number(ipStep.value)||1.5)); LS.setItem('gest.pump.step', String(v)); ipStep.value = String(v); updatePumpPill(); if (pump && typeof pump.setMinStep==='function') pump.setMinStep(v); }; }
   // 已移除 press 时长设置
   if (ipIntensity){
-    const def = (localStorage.getItem('gest.flick.intensity')||'medium');
+    const def = (LS.getItem('gest.flick.intensity')||'medium');
     ipIntensity.value = (['light','medium','strong'].includes(def) ? def : 'medium');
-    ipIntensity.onchange = ()=>{ const v = String(ipIntensity.value||'medium'); localStorage.setItem('gest.flick.intensity', v); };
+    ipIntensity.onchange = ()=>{ const v = String(ipIntensity.value||'medium'); LS.setItem('gest.flick.intensity', v); };
   }
   const btnClear = document.getElementById('gest-clear'); if (btnClear) btnClear.onclick = ()=>{ if (logBox) logBox.innerHTML=''; };
   const btnClose = document.getElementById('gest-close'); if (btnClose) btnClose.onclick = ()=>{ p.style.display = 'none'; };
@@ -238,13 +239,13 @@ const apFpsVal = document.getElementById('ap-fps-val');
 const apQualityVal = document.getElementById('ap-quality-val');
 
 function loadAppiumPrefs(){
-  apBase.value = localStorage.getItem('ap.base') || 'http://127.0.0.1:4723';
-  apSid.value = localStorage.getItem('ap.sid') || '';
-  apScale.value = localStorage.getItem('ap.scale') || 60;
-  apFps.value = localStorage.getItem('ap.fps') || 30;
-  apQuality.value = localStorage.getItem('ap.quality') || 15;
-  apUdid.value = localStorage.getItem('ap.udid') || '';
-  apAco.value = String(localStorage.getItem('ap.aco') || '0.1');
+  apBase.value = LS.getItem('ap.base') || 'http://127.0.0.1:4723';
+  apSid.value = LS.getItem('ap.sid') || '';
+  apScale.value = LS.getItem('ap.scale') || 60;
+  apFps.value = LS.getItem('ap.fps') || 30;
+  apQuality.value = LS.getItem('ap.quality') || 15;
+  apUdid.value = LS.getItem('ap.udid') || '';
+  apAco.value = String(LS.getItem('ap.aco') || '0.1');
   apScaleVal.textContent = apScale.value;
   apFpsVal.textContent = apFps.value;
   apQualityVal.textContent = apQuality.value;
@@ -272,13 +273,13 @@ document.getElementById('ap-apply').onclick = async ()=>{
     waitForIdleTimeout: 0,
     animationCoolOffTimeout: Number(apAco.value)
   };
-  localStorage.setItem('ap.base', base);
-  localStorage.setItem('ap.sid', sid);
-  localStorage.setItem('ap.udid', apUdid.value.trim());
-  localStorage.setItem('ap.scale', String(settings.mjpegScalingFactor));
-  localStorage.setItem('ap.fps', String(settings.mjpegServerFramerate));
-  localStorage.setItem('ap.quality', String(settings.mjpegServerScreenshotQuality));
-  localStorage.setItem('ap.aco', String(settings.animationCoolOffTimeout));
+  LS.setItem('ap.base', base);
+  LS.setItem('ap.sid', sid);
+  LS.setItem('ap.udid', apUdid.value.trim());
+  LS.setItem('ap.scale', String(settings.mjpegScalingFactor));
+  LS.setItem('ap.fps', String(settings.mjpegServerFramerate));
+  LS.setItem('ap.quality', String(settings.mjpegServerScreenshotQuality));
+  LS.setItem('ap.aco', String(settings.animationCoolOffTimeout));
   try{
     const r = await fetch(API + '/api/appium/settings', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -308,7 +309,7 @@ document.getElementById('ap-fetch').onclick = async ()=>{
     let j = await r.json();
     if (j.ok && j.sessionId) {
       apSid.value = j.sessionId;
-      localStorage.setItem('ap.sid', apSid.value);
+      LS.setItem('ap.sid', apSid.value);
       toast('已获取会话: ' + apSid.value, 'ok');
       streamToastShown = false;
       img.src = API + '/stream?' + Date.now();
@@ -320,7 +321,7 @@ document.getElementById('ap-fetch').onclick = async ()=>{
     j = await r.json();
     if(j.sessions && j.sessions.length){
       apSid.value = j.sessions[j.sessions.length - 1];
-      localStorage.setItem('ap.sid', apSid.value);
+      LS.setItem('ap.sid', apSid.value);
       toast('已获取会话: ' + apSid.value, 'ok');
       streamToastShown = false;
       img.src = API + '/stream?' + Date.now();
@@ -350,8 +351,8 @@ document.getElementById('ap-create').onclick = async ()=>{
     const j = await r.json();
     if(r.ok && j.sessionId){
       apSid.value = j.sessionId;
-      localStorage.setItem('ap.sid', apSid.value);
-      localStorage.setItem('ap.udid', udid);
+      LS.setItem('ap.sid', apSid.value);
+      LS.setItem('ap.udid', udid);
       toast('会话已创建: ' + j.sessionId, 'ok');
       streamToastShown = false;
       img.src = API + '/stream?' + Date.now();
@@ -380,9 +381,9 @@ document.getElementById('ap-load').onclick = async ()=>{
     apScaleVal.textContent = apScale.value;
     apFpsVal.textContent = apFps.value;
     apQualityVal.textContent = apQuality.value;
-    localStorage.setItem('ap.scale', apScale.value);
-    localStorage.setItem('ap.fps', apFps.value);
-    localStorage.setItem('ap.quality', apQuality.value);
+    LS.setItem('ap.scale', apScale.value);
+    LS.setItem('ap.fps', apFps.value);
+    LS.setItem('ap.quality', apQuality.value);
     toast('已读取当前设置', 'ok');
   }catch(err){ toast('读取失败: ' + err, 'err'); }
 };
@@ -423,8 +424,8 @@ canvas.addEventListener('pointermove', (e)=>{
   drawDot(e.clientX - rect.left, e.clientY - rect.top);
 });
 window.addEventListener('load', ()=>{
-  const base0 = localStorage.getItem('ap.base')||'';
-  const sid0 = localStorage.getItem('ap.sid')||'';
+  const base0 = LS.getItem('ap.base')||'';
+  const sid0 = LS.getItem('ap.sid')||'';
   if (base0 && sid0) {
     apBase.value = base0; apSid.value = sid0;
   }

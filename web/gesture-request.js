@@ -1,9 +1,10 @@
 // 手势请求发送模块
+var LS = (function(){ try{ return window.localStorage; }catch(_){ return { getItem(){return null;}, setItem(){}, removeItem(){} }; }})();
 let MOBILE_BUSY = false; // Appium exec-mobile 并发闸门
 
 function getGestureChannel(){ return 'appium'; }
 function getAppiumBaseAndSid(){
-  return { base: (localStorage.getItem('ap.base')||'').trim(), sid: (localStorage.getItem('ap.sid')||'').trim() };
+  return { base: (LS.getItem('ap.base')||'').trim(), sid: (LS.getItem('ap.sid')||'').trim() };
 }
 async function safeFetch(url, opts, actionLabel){
   const isExec = typeof url === 'string' && url.indexOf('/api/appium/exec-mobile') >= 0;
@@ -64,7 +65,7 @@ async function longPressAt(x,y, durationMs){
   await mobileExec('mobile: touchAndHold', { x: Math.round(x), y: Math.round(y), duration: durMs/1000 }, '长按');
 }
 function getFlickIntensity(){
-  const v = String(localStorage.getItem('gest.flick.intensity')||'medium');
+  const v = String(LS.getItem('gest.flick.intensity')||'medium');
   return (v==='light'||v==='strong') ? v : 'medium';
 }
 function flickCoeff(){
