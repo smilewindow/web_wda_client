@@ -51,12 +51,9 @@ async function mobileExec(script, args, label){
   }
 }
 async function tapAt(x,y){
-  log('tapAt', { ch:'wda', x, y });
+  log('tapAt', { ch:'appium', x, y });
   if (DRYRUN){ log('DRYRUN tap skip send'); return; }
-  await safeFetch(API + '/api/tap', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ x, y })
-  }, '点击');
+  await mobileExec('mobile: tap', { x: Math.round(x), y: Math.round(y) }, '点击');
 }
 async function longPressAt(x,y, durationMs){
   const durMs = Math.max(200, Math.round(durationMs||600));
