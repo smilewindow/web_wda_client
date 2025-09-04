@@ -71,7 +71,7 @@ function setupInteractHandlers(){
 }
 function setupGestureRecognizer(){
   updatePumpPill();
-  mappingPill && (mappingPill.textContent = 'tap→/api/tap(WDA) · longPress→mobile: touchAndHold · drag(flick/drag)→mobile: dragFromToWithVelocity');
+  mappingPill && (mappingPill.textContent = 'tap→mobile: tap · longPress→mobile: touchAndHold · drag(flick/drag)→mobile: dragFromToWithVelocity');
   try{ setupInteractHandlers(); }catch(_e){}
   if (typeof interact !== 'undefined') {
     const target = canvas;
