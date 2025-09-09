@@ -35,8 +35,7 @@
       <label><input type="checkbox" id="gest-debug"/> 调试日志</label>
       <label><input type="checkbox" id="gest-dryrun"/> 仅日志（不发送）</label>
       <div class="row">
-        <label for="gest-lp" class="muted">长按(ms)</label>
-        <input id="gest-lp" type="number" min="200" max="5000" step="100" />
+        <!-- 长按阈值设置已移除，固定为 500ms -->
       </div>
       <div class="row">
         <label for="gest-intensity" class="muted">甩动力度</label>
@@ -46,27 +45,17 @@
           <option value="strong">强</option>
         </select>
       </div>
+      <div class="row">
+        <label for="gest-scroll-mode" class="muted">滚动方案</label>
+        <select id="gest-scroll-mode" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
+          <option value="velocity">速度拖拽（mobile: dragFromToWithVelocity）</option>
+          <option value="w3c">W3C Actions（轨迹回放）</option>
+        </select>
+      </div>
       <!-- 移除 press 持续时间设置，交由算法自适应 -->
       <button id="gest-close" class="btn">关闭</button>
     </header>
     <div class="body">
-      <div class="g-section">
-        <h3>运行状态</h3>
-        <div class="g-kv">
-          <div>模式</div><div><span class="g-pill" id="g-mode">idle</span></div>
-          <div>拖拽注入</div><div><span class="g-pill" id="g-dragMode">appium(one-shot)</span></div>
-          <div>映射</div><div><span class="g-pill" id="g-mapping">px→pt (auto)</span></div>
-        </div>
-      </div>
-      <div class="g-section">
-        <h3>阈值 / 参数</h3>
-        <div class="g-help" id="g-help">
-          • tap: 按下→抬起 < 250ms 且位移 < 8px
-          • longPress: 按住 ≥ 3000ms 且位移 < 8px（可在面板调整）
-          • drag/swipe: 位移 ≥ 8px；swipe 需 <= 250ms
-          • 坐标映射：根据设备 pt/px 自动换算
-        </div>
-      </div>
       <div class="g-section">
         <div class="g-sec-head"><h3 style="margin:6px 0 4px 2px">事件日志</h3><button id="gest-clear" class="btn">清空</button></div>
         <div id="gest-log"></div>
@@ -95,7 +84,7 @@
     </div>
     <div class="row">
       <label style="width:74px">帧率</label>
-      <input type="range" min="10" max="60" step="1" id="ap-fps"/>
+      <input type="range" min="1" max="60" step="1" id="ap-fps"/>
       <span class="val" id="ap-fps-val"></span>
     </div>
     <div class="row">
@@ -103,14 +92,7 @@
       <input type="range" min="5" max="50" step="1" id="ap-quality"/>
       <span class="val" id="ap-quality-val"></span>
     </div>
-    <div class="row">
-      <label style="width:74px">动画冷却</label>
-      <select id="ap-aco" style="flex:1 1 auto;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
-        <option value="0">0.0</option>
-        <option value="0.1">0.1</option>
-        <option value="0.2">0.2</option>
-      </select>
-    </div>
+    
     <!-- 手势通道选择已移除：前端固定走 Appium 通道 -->
     <!-- 保活设置移除，默认总是保活（见脚本） -->
 

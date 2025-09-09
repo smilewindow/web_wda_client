@@ -41,6 +41,9 @@ if not logger.handlers:
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
+# Disable uvicorn's default access logs to avoid duplication with our REQ/RESP
+logging.getLogger("uvicorn.access").disabled = True
+
 # Whether backend is allowed to create a new WDA session when none exists.
 # auto: disable auto-create if APPIUM_BASE is set; otherwise enable.
 _AUTO_ENV = os.environ.get("WDA_AUTO_CREATE", "auto").strip().lower()

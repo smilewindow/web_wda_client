@@ -8,7 +8,11 @@ const dragModePill = document.getElementById('g-dragMode');
 const mappingPill = document.getElementById('g-mapping');
 const cursorEl = document.getElementById('cursor');
 let longPressTriggered = false; let longHoldStart = 0; let pressTimer = null;
+// 对抖动更宽容：移动超过该像素阈值时取消长按并进入拖拽
+const MOVE_CANCEL_PX = 12; // 原先为 8px，较易误判为拖拽
+const MOVE_CANCEL_SQ = MOVE_CANCEL_PX * MOVE_CANCEL_PX;
 let chAtDown = 'appium'; let ptDown = null; let dragStarted = false;
+let dragTrace = [];
 
 function setMode(text){ if(modePill) modePill.textContent = text; }
 function updatePumpPill(){ if (dragModePill) dragModePill.textContent = 'appium(one-shot)'; }
@@ -17,7 +21,8 @@ class WDAAdapter {
   async tap(pt){ return tapAt(pt.x, pt.y); }
   async longPress(pt, durationMs){ const dur = Math.max(200, Math.round(durationMs||600)); return longPressAt(pt.x, pt.y, dur); }
 }
-function getLongPressMs(){ const v = Number(LS.getItem('gest.longpress.ms')||3000); return Math.max(200, isFinite(v)?v:3000); }
+function getLongPressMs(){ return 500; } // 识别阈值
+const LONGPRESS_TOTAL_MS = 1200; // 目标总按住时长，用于触发主屏“抖动模式”
 function setupInteractHandlers(){
   if (typeof interact === 'undefined') { console.warn('[GEST] interact.js not ready'); return; }
   try{
@@ -30,16 +35,20 @@ function setupInteractHandlers(){
       downClient = {x:e.clientX, y:e.clientY};
       longPressTriggered = false; longHoldStart = performance.now(); dragStarted = false;
       chAtDown = 'appium'; ptDown = {x,y};
+      dragTrace = [{ x: x, y: y, t: 0 }];
+      
       try{ if (pressTimer) clearTimeout(pressTimer); }catch(_e){}
       pressTimer = setTimeout(()=>{
+        // 到达识别阈值：若仍按住且未拖拽，立即发送 touchAndHold，
+        // 持续时间按“目标总时长 - 已按住时间”计算，避免必须抬手才能触发主屏抖动模式。
         if (!isDown || dragStarted) return;
-        const dx = e.clientX - downClient.x; const dy = e.clientY - downClient.y;
-        if ((dx*dx + dy*dy) <= 64) {
-          longPressTriggered = true;
-          setMode('longPress');
-          ev('longPress', { at: {x:ptDown.x,y:ptDown.y}, durationMs: getLongPressMs() });
-          void adapter.longPress({x:ptDown.x,y:ptDown.y}, getLongPressMs());
-        }
+        longPressTriggered = true;
+        setMode('longPress');
+        const elapsed = Math.max(0, Math.round(performance.now() - downAt));
+        const remain = Math.max(0, LONGPRESS_TOTAL_MS - elapsed);
+        const durMs = Math.max(getLongPressMs(), remain || getLongPressMs());
+        ev('longPress', { at: {x:ptDown.x,y:ptDown.y}, durationMs: durMs });
+        void (new WDAAdapter()).longPress({x:ptDown.x,y:ptDown.y}, durMs);
       }, getLongPressMs());
       cursorEl && (cursorEl.style.transform = `translate(${e.clientX - img.getBoundingClientRect().left - 5}px, ${e.clientY - img.getBoundingClientRect().top - 5}px)`);
       setMode('pressing');
@@ -48,9 +57,28 @@ function setupInteractHandlers(){
       log('move', { x:e.clientX, y:e.clientY, isDown, dragStarted, longPressTriggered });
       if (!isDown) return;
       const dx = e.clientX - downClient.x; const dy = e.clientY - downClient.y; const dist2 = dx*dx + dy*dy;
-      if (!dragStarted && dist2 > 64 && !longPressTriggered){
+      if (!dragStarted && dist2 > MOVE_CANCEL_SQ && !longPressTriggered){
         try{ if (pressTimer) clearTimeout(pressTimer); }catch(_e){}
         dragStarted = true; setMode('dragging');
+        
+      }
+      if (dragStarted){
+        const t = Math.round(performance.now() - downAt);
+        const pdev = toDevicePt(e.clientX, e.clientY);
+        const last = dragTrace.length ? dragTrace[dragTrace.length-1] : null;
+        const dxs = last ? (pdev.x - last.x) : 0, dys = last ? (pdev.y - last.y) : 0;
+        // 记录采样点（含时间）；仅在 W3C 滚动方案下打印 sample 日志
+        if (!last || t - last.t >= 12 || (dxs*dxs + dys*dys) >= 4){
+          dragTrace.push({ x: pdev.x, y: pdev.y, t });
+          if (dragTrace.length > 80) dragTrace.splice(1, 1);
+          // 在 velocity（速度拖拽）模式下不打印 sample；仅 W3C 模式打印
+          try {
+            const mode = String((LS.getItem('gest.scroll.mode')||'velocity'));
+            if (mode === 'w3c') {
+              ev('sample', { x: Math.round(pdev.x), y: Math.round(pdev.y), t });
+            }
+          } catch(_e){}
+        }
       }
     })
     .on('up', (e)=>{
@@ -59,11 +87,42 @@ function setupInteractHandlers(){
       const p = toDevicePt(e.clientX, e.clientY);
       if (pressTimer) try{ clearTimeout(pressTimer); }catch(_e){}
       let dur = performance.now() - downAt;
-      if (longPressTriggered){ /* already sent */ }
-      else if (!dragStarted && dur <= 250){
+      // 优先判定底部上滑 → Home（更易触发）：无论是否已判为拖拽，只要满足条件则优先触发 Home
+      try {
+        const rect = p.rect;
+        const startY = downClient.y - rect.top;
+        const endY = e.clientY - rect.top;
+        const isFromBottom = startY > rect.height * 0.90;      // 从底部 10% 区域起手
+        const movedUpEnough = (startY - endY) > rect.height * 0.08; // 上滑超过 8% 屏高
+        if (isFromBottom && movedUpEnough) {
+          ev('home-swipe', { fromY: Math.round(startY), toY: Math.round(endY) });
+          setMode('home');
+          void pressHome();
+          setMode('idle');
+          return; // 已处理 Home，不再走后续 tap/drag/longPress 分支
+        }
+      } catch(_e){}
+      if (longPressTriggered && !dragStarted){
+        // 已在定时器阶段发送，无需重复
+      } else if (!dragStarted && dur >= getLongPressMs()){
+        // 兜底：未触发定时器，但总时长已达阈值
+        const durMs = Math.max(getLongPressMs(), Math.round(dur));
+        setMode('longPress'); ev('longPress', { at: {x:p.x,y:p.y}, durationMs: durMs });
+        void (new WDAAdapter()).longPress({x:p.x,y:p.y}, durMs);
+      } else if (!dragStarted && dur <= 250){
         setMode('tap'); ev('tap', { at: {x:p.x, y:p.y} }); void adapter.tap({x:p.x, y:p.y});
       } else if (dragStarted){
-        dragFromTo(ptDown || {x:p.x,y:p.y}, {x:p.x,y:p.y}, dur);
+        const mode = String((LS.getItem('gest.scroll.mode')||'velocity'));
+        if (mode === 'w3c'){
+          try {
+            const tr = dragTrace.slice();
+            tr.push({ x: p.x, y: p.y, t: Math.round(dur) });
+            void sendW3CTrace(tr);
+          } catch(_e){}
+        } else {
+          // 一次性注入最终段（velocity）
+          void dragFromTo(ptDown || {x:p.x,y:p.y}, {x:p.x,y:p.y}, dur);
+        }
       }
       setMode('idle');
     });

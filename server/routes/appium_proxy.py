@@ -1,10 +1,11 @@
 from typing import Any, Dict, Optional
-
-import httpx
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 import core
+import appium_driver as ad
+import httpx
 
 router = APIRouter()
 
@@ -16,15 +17,12 @@ async def api_appium_set(payload: Dict[str, Any]):
     settings = payload.get("settings", {})
     if not base or not sid or not isinstance(settings, dict):
         return JSONResponse({"error": "base, sessionId, settings are required"}, status_code=400)
-    url = f"{base}/session/{sid}/appium/settings"
-    client = await core.get_http_client()
     try:
-        r = await client.post(url, json={"settings": settings}, timeout=15)
-        r.raise_for_status()
-        return r.json()
-    except httpx.HTTPError as e:
-        body = getattr(e.response, 'text', '') if getattr(e, 'response', None) is not None else ''
-        return JSONResponse({"error": str(e), "body": body}, status_code=502)
+        res = await ad.update_settings(base, sid, settings)  # dict of settings
+        return {"value": res}
+    except Exception as e:
+        core.logger.exception(f"appium settings POST failed: base={base} sid={sid} settings_keys={list(settings.keys())}")
+        return JSONResponse({"error": str(e)}, status_code=502)
 
 
 @router.get("/api/appium/settings")
@@ -33,15 +31,12 @@ async def api_appium_get(base: Optional[str] = None, sessionId: Optional[str] = 
     sid = sessionId
     if not b or not sid:
         return JSONResponse({"error": "query params base and sessionId are required"}, status_code=400)
-    url = f"{b}/session/{sid}/appium/settings"
-    client = await core.get_http_client()
     try:
-        r = await client.get(url, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except httpx.HTTPError as e:
-        body = getattr(e.response, 'text', '') if getattr(e, 'response', None) is not None else ''
-        return JSONResponse({"error": str(e), "body": body}, status_code=502)
+        res = await ad.get_settings(b, sid)
+        return {"value": res}
+    except Exception as e:
+        core.logger.exception(f"appium settings GET failed: base={b} sid={sid}")
+        return JSONResponse({"error": str(e)}, status_code=502)
 
 
 @router.get("/api/appium/sessions")
@@ -49,26 +44,7 @@ async def api_appium_sessions(base: Optional[str] = None):
     b = (base or core.APPIUM_BASE).rstrip("/") if (base or core.APPIUM_BASE) else None
     if not b:
         return JSONResponse({"error": "query param base is required or set APPIUM_BASE"}, status_code=400)
-    url = f"{b}/sessions"
-    client = await core.get_http_client()
-    try:
-        r = await client.get(url, timeout=10)
-        if r.status_code == 404:
-            return {"sessions": []}
-        r.raise_for_status()
-        data = r.json()
-        val = data.get("value") or {}
-        sessions = val.get("sessions") or (val if isinstance(val, list) else [])
-        ids = []
-        for s in sessions:
-            sid = s.get("id") or s.get("sessionId")
-            if sid:
-                ids.append(sid)
-        return {"sessions": ids}
-    except httpx.HTTPError as e:
-        body = getattr(e.response, 'text', '') if getattr(e, 'response', None) is not None else ''
-        core.logger.warning(f"appium sessions GET failed: url={url} err={e} body={str(body)[:200]}")
-        return JSONResponse({"error": str(e), "body": body}, status_code=502)
+    return {"sessions": ad.list_sessions(b)}
 
 
 @router.post("/api/appium/create")
@@ -80,46 +56,47 @@ async def api_appium_create(payload: Dict[str, Any]):
     bundle_id = payload.get("bundleId")
     no_reset = payload.get("noReset")
     new_cmd_to = payload.get("newCommandTimeout", 0)
-    extra_caps = payload.get("extraCaps", {})
     if not base or not udid:
         return JSONResponse({"error": "base and udid are required"}, status_code=400)
+    # 基础能力
     caps: Dict[str, Any] = {
         "platformName": "iOS",
         "appium:automationName": "XCUITest",
         "appium:udid": udid,
         "appium:wdaLocalPort": wda_port,
         "appium:mjpegServerPort": mjpeg_port,
+        # "appium:mjpegScreenshotUrl": "http://127.0.0.1:8090/stream",
         "appium:newCommandTimeout": int(new_cmd_to) if new_cmd_to is not None else 0,
+        "appium:preventWDAAttachments": True,
     }
-    # Merge any extra capabilities provided by client
-    if isinstance(extra_caps, dict):
-        try:
-            caps.update(extra_caps)
-        except Exception:
-            pass
+    # 后端统一追加的优化型能力（不再由前端传入 extraCaps）
+    try:
+        caps.update({
+            "appium:mjpegScalingFactor": 17.06161117553711,
+            "appium:mjpegServerFramerate": 10,
+            "appium:mjpegServerScreenshotQuality": 75,
+            "appium:waitForQuiescence": False,
+            "appium:waitForIdleTimeout": 0,
+            "appium:wdaEventloopIdleDelay": 0,
+            "appium:simpleIsVisibleCheck": True,
+            "appium:disableAutomaticScreenshots": True,
+            "appium:showXcodeLog": True,
+            "appium:showIOSLog": False,
+            "appium:logTimestamps": True,
+        })
+    except Exception:
+        pass
     if bundle_id:
         caps["appium:bundleId"] = bundle_id
     if no_reset is not None:
         caps["appium:noReset"] = bool(no_reset)
-    payload_caps = {"capabilities": {"firstMatch": [caps]}}
-    url = f"{base}/session"
-    client = await core.get_http_client()
     try:
-        r = await client.post(url, json=payload_caps, timeout=60)
-        r.raise_for_status()
-        j = r.json()
-        val = j.get("value", {})
-        sid = val.get("sessionId") or j.get("sessionId") or val.get("id")
-        if not sid:
-            return JSONResponse({"error": "no sessionId in response", "resp": j}, status_code=502)
-        try:
-            core.APPIUM_LATEST[base] = sid
-        except Exception:
-            pass
-        return {"sessionId": sid, "capabilities": val.get("capabilities")}
-    except httpx.HTTPError as e:
-        body = getattr(e.response, 'text', '') if getattr(e, 'response', None) is not None else ''
-        return JSONResponse({"error": str(e), "body": body}, status_code=502)
+        sid, _driver = await ad.create_session(base, caps)
+        # 为避免序列化问题，这里不返回 capabilities（某些实现包含不可 JSON 化对象）
+        return {"sessionId": sid, "capabilities": None}
+    except Exception as e:
+        core.logger.exception(f"appium create failed: base={base} udid={udid}")
+        return JSONResponse({"error": str(e)}, status_code=502)
 
 
 @router.get("/api/appium/last-session")
@@ -130,14 +107,8 @@ async def api_appium_last_session(base: Optional[str] = None):
     sid = core.APPIUM_LATEST.get(b)
     if not sid:
         return {"sessionId": None, "ok": False}
-    url = f"{b}/session/{sid}"
-    client = await core.get_http_client()
-    try:
-        r = await client.get(url, timeout=8)
-        if r.status_code == 200:
-            return {"sessionId": sid, "ok": True}
-    except Exception:
-        pass
+    if ad.get_driver(b, sid) is not None:
+        return {"sessionId": sid, "ok": True}
     try:
         del core.APPIUM_LATEST[b]
     except Exception:
@@ -169,14 +140,46 @@ async def api_appium_exec_mobile(payload: Dict[str, Any]):
     else:
         return JSONResponse({"error": "args must be an object or array"}, status_code=400)
 
-    url = f"{b}/session/{sid}/execute/sync"
-    body = {"script": script, "args": args_arr}
+    try:
+        # Appium Python Client通常接受dict作为 args；若收到数组，仅取首个元素作为参数对象
+        if isinstance(args_arr, list):
+            args_obj = (args_arr[0] if args_arr else {})
+        else:
+            args_obj = args_arr
+        res = await ad.exec_mobile(b, sid, script, args_obj)
+        try:
+            enc = jsonable_encoder(res)
+        except Exception:
+            enc = str(res)
+        return {"value": enc}
+    except Exception as e:
+        core.logger.exception(f"appium exec-mobile failed: base={b} sid={sid} script={script}")
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@router.post("/api/appium/actions")
+async def api_appium_actions(payload: Dict[str, Any]):
+    """下发 W3C Actions（原生 pointer 序列）。
+    请求体示例：
+    {
+      "base": "http://127.0.0.1:4723",
+      "sessionId": "<APPIUM_SESSION_ID>",
+      "actions": [ { ... } ]
+    }
+    注：此端点直接调用 Appium /session/{sid}/actions HTTP 接口以避免客户端包装差异。
+    """
+    b = (payload.get("base") or core.APPIUM_BASE).rstrip("/") if (payload.get("base") or core.APPIUM_BASE) else None
+    sid = payload.get("sessionId")
+    actions = payload.get("actions")
+    if not b or not sid or not isinstance(actions, list):
+        return JSONResponse({"error": "base, sessionId, actions are required"}, status_code=400)
+    url = f"{b}/session/{sid}/actions"
     client = await core.get_http_client()
     try:
-        r = await client.post(url, json=body, timeout=30)
+        r = await client.post(url, json={"actions": actions}, timeout=30)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPError as e:
         body_text = getattr(e.response, 'text', '') if getattr(e, 'response', None) is not None else ''
-        core.logger.warning(f"appium exec-mobile failed: url={url} script={script} err={e} body={str(body_text)[:200]}")
+        core.logger.exception(f"appium actions failed: url={url} err={e}")
         return JSONResponse({"error": str(e), "body": body_text}, status_code=502)

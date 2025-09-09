@@ -6,7 +6,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-appl
 #phone{position:relative;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45);background:#000}
 /* 让画面自适应窗口，高度受限避免被遮挡（HUD/工具栏预留约 160px） */
 #stream{display:block;max-width:92vw;max-height:calc(100vh - 160px);width:auto;height:auto;background:#000}
-#overlay{position:absolute;left:0;top:0;pointer-events:auto}
+#overlay{position:absolute;left:0;top:0;pointer-events:auto;touch-action:none}
 .cursor{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(77,163,255,.25);pointer-events:none;opacity:.9;transform:translate(-9999px,-9999px)}
 #hud{position:fixed;left:12px;top:12px;background:rgba(22,22,26,.75);backdrop-filter:saturate(1.2) blur(6px);border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:flex;gap:10px;align-items:center}
 #toolbar{position:fixed;left:12px;bottom:12px;display:flex;gap:8px;flex-wrap:wrap}
