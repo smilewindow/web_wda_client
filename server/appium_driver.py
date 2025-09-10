@@ -2,6 +2,7 @@ import asyncio
 from typing import Any, Dict, List, Optional, Tuple
 
 import core
+import logging
 
 try:  # soft import; give clear error if missing
     from appium.webdriver import Remote  # type: ignore
@@ -14,14 +15,55 @@ except Exception as _e:  # pragma: no cover
     Remote = None  # type: ignore
     XCUITestOptions = None  # type: ignore
     APPIM_AVAILABLE = False
+try:
+    from selenium.common.exceptions import InvalidSessionIdException  # type: ignore
+except Exception:  # pragma: no cover
+    InvalidSessionIdException = None  # type: ignore
 
 
 # In-memory driver registry: (base, sessionId) -> driver
 _DRIVERS: Dict[Tuple[str, str], Any] = {}
+# 记录每个 base 最近一次用于创建会话的 capabilities，便于自动重建
+_LAST_CAPS: Dict[str, Dict[str, Any]] = {}
 
 
 def _key(base: str, sid: str) -> Tuple[str, str]:
     return (base.rstrip("/"), sid)
+
+
+class AppiumInvalidSession(RuntimeError):
+    """Raised when the upstream Appium session is gone/invalid.
+
+    路由层可据此返回 410，让前端重建会话。
+    """
+    pass
+
+
+def invalidate_session(base: str, sid: str) -> None:
+    """Remove local driver cache and latest marker if matching.
+
+    清理内存注册表，避免后续继续使用已失效的会话。
+    """
+    b = base.rstrip("/")
+    k = _key(b, sid)
+    if k in _DRIVERS:
+        try:
+            drv = _DRIVERS.pop(k)
+            try:
+                # 不主动 quit，避免与上游无效会话的二次错误；仅清缓存。
+                pass
+            except Exception:
+                pass
+        finally:
+            logging.getLogger("wda.web").info(
+                f"appium invalidate-session: base={b} sid={sid} cache_cleared=True"
+            )
+    # 若最新标记指向该 sid，则一并移除
+    try:
+        if core.APPIUM_LATEST.get(b) == sid:
+            del core.APPIUM_LATEST[b]
+    except Exception:
+        pass
 
 
 async def ensure_available() -> None:
@@ -82,11 +124,22 @@ async def create_session(base: str, capabilities: Dict[str, Any]) -> Tuple[str, 
         core.APPIUM_LATEST[b] = sid
     except Exception:
         pass
+    # 保存最近一次用于该 base 的 capabilities，便于自动重建
+    try:
+        if isinstance(capabilities, dict):
+            _LAST_CAPS[b] = dict(capabilities)
+    except Exception:
+        pass
     return sid, driver
 
 
 def get_driver(base: str, sid: str) -> Optional[Any]:
     return _DRIVERS.get(_key(base, sid))
+
+
+def get_last_caps(base: str) -> Optional[Dict[str, Any]]:
+    b = base.rstrip("/")
+    return _LAST_CAPS.get(b)
 
 
 async def exec_mobile(base: str, sid: str, script: str, args: Any) -> Any:
@@ -97,9 +150,51 @@ async def exec_mobile(base: str, sid: str, script: str, args: Any) -> Any:
 
     def _exec() -> Any:
         # Appium Python Client accepts dict for mobile: commands; it wraps as array internally
-        return drv.execute_script(script, args)
+        try:
+            return drv.execute_script(script, args)
+        except Exception as e:
+            # 识别上游会话失效并清理缓存
+            is_invalid = False
+            if InvalidSessionIdException is not None and isinstance(e, InvalidSessionIdException):
+                is_invalid = True
+            else:
+                msg = str(e) or e.__class__.__name__
+                if "InvalidSessionId" in msg or "A session is either terminated or not started" in msg:
+                    is_invalid = True
+            if is_invalid:
+                invalidate_session(base, sid)
+                raise AppiumInvalidSession(
+                    "Appium session is invalid or terminated; please recreate the session"
+                ) from e
+            raise
 
     return await asyncio.to_thread(_exec)
+
+
+async def exec_mobile_with_auto_recreate(base: str, sid: str, script: str, args: Any) -> Tuple[Any, Optional[str]]:
+    """执行 mobile 命令；若会话失效且可用最近的 capabilities，则自动重建并重试一次。
+
+    返回: (结果, new_session_id or None)
+    """
+    try:
+        res = await exec_mobile(base, sid, script, args)
+        return res, None
+    except AppiumInvalidSession:
+        caps = get_last_caps(base)
+        if not isinstance(caps, dict) or not caps:
+            # 无法自动重建，只抛出原异常
+            raise
+        # 尝试重建
+        try:
+            new_sid, _drv = await create_session(base, capabilities=caps)
+        except Exception as e:
+            # 重建失败，按会话失效处理
+            raise AppiumInvalidSession(
+                f"Failed to auto-recreate session: {e}"
+            ) from e
+        # 使用新会话重试一次
+        res2 = await exec_mobile(base, new_sid, script, args)
+        return res2, new_sid
 
 
 async def get_settings(base: str, sid: str) -> Dict[str, Any]:
@@ -109,7 +204,22 @@ async def get_settings(base: str, sid: str) -> Dict[str, Any]:
         raise RuntimeError("unknown session; create it via /api/appium/create in this backend")
 
     def _get() -> Dict[str, Any]:
-        return drv.get_settings()
+        try:
+            return drv.get_settings()
+        except Exception as e:
+            is_invalid = False
+            if InvalidSessionIdException is not None and isinstance(e, InvalidSessionIdException):
+                is_invalid = True
+            else:
+                msg = str(e) or e.__class__.__name__
+                if "InvalidSessionId" in msg or "A session is either terminated or not started" in msg:
+                    is_invalid = True
+            if is_invalid:
+                invalidate_session(base, sid)
+                raise AppiumInvalidSession(
+                    "Appium session is invalid or terminated; please recreate the session"
+                ) from e
+            raise
 
     return await asyncio.to_thread(_get)
 
@@ -123,9 +233,21 @@ async def update_settings(base: str, sid: str, settings: Dict[str, Any]) -> Dict
     def _upd_and_get() -> Dict[str, Any]:
         try:
             drv.update_settings(settings)
+            return drv.get_settings()
         except Exception as e:
+            is_invalid = False
+            if InvalidSessionIdException is not None and isinstance(e, InvalidSessionIdException):
+                is_invalid = True
+            else:
+                msg = str(e) or e.__class__.__name__
+                if "InvalidSessionId" in msg or "A session is either terminated or not started" in msg:
+                    is_invalid = True
+            if is_invalid:
+                invalidate_session(base, sid)
+                raise AppiumInvalidSession(
+                    "Appium session is invalid or terminated; please recreate the session"
+                ) from e
             raise
-        return drv.get_settings()
 
     return await asyncio.to_thread(_upd_and_get)
 
