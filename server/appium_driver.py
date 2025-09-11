@@ -10,10 +10,15 @@ try:  # soft import; give clear error if missing
         from appium.options.ios import XCUITestOptions  # type: ignore
     except Exception:  # pragma: no cover
         XCUITestOptions = None  # type: ignore
+    try:
+        from appium.options.common import AppiumOptions  # type: ignore
+    except Exception:  # pragma: no cover
+        AppiumOptions = None  # type: ignore
     APPIM_AVAILABLE = True
 except Exception as _e:  # pragma: no cover
     Remote = None  # type: ignore
     XCUITestOptions = None  # type: ignore
+    AppiumOptions = None  # type: ignore
     APPIM_AVAILABLE = False
 try:
     from selenium.common.exceptions import InvalidSessionIdException  # type: ignore
@@ -94,20 +99,34 @@ async def create_session(base: str, capabilities: Dict[str, Any]) -> Tuple[str, 
             last_err = e
             core.logger.warning(f"Appium create (options) failed: {e}")
 
-    # Attempt 2: legacy desired_capabilities with de-namespaced caps
+    # Attempt 2: Fallback to generic AppiumOptions with de-namespaced caps (for broader compatibility)
     if driver is None:
-        def _mk_legacy() -> Any:
+        def _mk_opts_generic() -> Any:
+            # 去命名空间（如 appium:udid -> udid），以兼容某些服务端对旧键的容忍
             caps_legacy: Dict[str, Any] = {}
             for k, v in (capabilities or {}).items():
                 kk = k
                 if isinstance(k, str) and k.startswith("appium:"):
                     kk = k.split(":", 1)[1]
                 caps_legacy[kk] = v
-            return Remote(command_executor=b, desired_capabilities=caps_legacy)
+            if AppiumOptions is None:
+                # 理论上 v3 应存在 AppiumOptions；若不存在，直接重抛到外层
+                raise RuntimeError("AppiumOptions is not available in this Appium Python client")
+            opts = AppiumOptions()
+            try:
+                opts.load_capabilities(caps_legacy)
+            except Exception:
+                # 退化逐项设置
+                for k, v in caps_legacy.items():
+                    try:
+                        opts.set_capability(k, v)
+                    except Exception:
+                        pass
+            return Remote(command_executor=b, options=opts)
         try:
-            driver = await asyncio.to_thread(_mk_legacy)
+            driver = await asyncio.to_thread(_mk_opts_generic)
         except Exception as e2:
-            core.logger.error(f"Appium create (legacy) failed: {e2}")
+            core.logger.error(f"Appium create (fallback options) failed: {e2}")
             if last_err is not None:
                 core.logger.error(f"Previous create (options) error: {last_err}")
             raise
@@ -180,21 +199,70 @@ async def exec_mobile_with_auto_recreate(base: str, sid: str, script: str, args:
         res = await exec_mobile(base, sid, script, args)
         return res, None
     except AppiumInvalidSession:
+        # 上游确认会话失效，尝试基于最近 capabilities 自动重建
+        try:
+            core.logger.warning(f"auto-recreate start (invalid): base={base} oldSid={sid} script={script}")
+        except Exception:
+            pass
         caps = get_last_caps(base)
         if not isinstance(caps, dict) or not caps:
-            # 无法自动重建，只抛出原异常
+            try:
+                core.logger.warning(f"auto-recreate skipped: no cached capabilities for base={base}")
+            except Exception:
+                pass
             raise
-        # 尝试重建
         try:
             new_sid, _drv = await create_session(base, capabilities=caps)
         except Exception as e:
-            # 重建失败，按会话失效处理
+            try:
+                core.logger.exception(f"auto-recreate failed: base={base} oldSid={sid} err={e}")
+            except Exception:
+                pass
             raise AppiumInvalidSession(
                 f"Failed to auto-recreate session: {e}"
             ) from e
-        # 使用新会话重试一次
+        try:
+            core.logger.info(f"auto-recreate ok: base={base} oldSid={sid} newSid={new_sid}")
+        except Exception:
+            pass
         res2 = await exec_mobile(base, new_sid, script, args)
         return res2, new_sid
+    except RuntimeError as e:
+        # 本地未命中 driver 缓存（如后端重启），也尝试重建
+        msg = str(e) or e.__class__.__name__
+        if "unknown session" in msg.lower():
+            # 仅基于缓存能力重建，不复用 latest
+            try:
+                core.logger.warning(f"auto-recreate start (unknown): base={base} oldSid={sid} script={script}")
+            except Exception:
+                pass
+            caps = get_last_caps(base)
+            if not isinstance(caps, dict) or not caps:
+                # 统一为会话失效类错误，便于路由返回 410
+                try:
+                    core.logger.warning(f"auto-recreate skipped: no cached capabilities for base={base}")
+                except Exception:
+                    pass
+                raise AppiumInvalidSession(
+                    "Unknown session in backend and no cached capabilities; please recreate the session"
+                ) from e
+            try:
+                new_sid, _drv = await create_session(base, capabilities=caps)
+            except Exception as e2:
+                try:
+                    core.logger.exception(f"auto-recreate failed: base={base} oldSid={sid} err={e2}")
+                except Exception:
+                    pass
+                raise AppiumInvalidSession(
+                    f"Failed to auto-recreate session: {e2}"
+                ) from e2
+            try:
+                core.logger.info(f"auto-recreate ok: base={base} oldSid={sid} newSid={new_sid}")
+            except Exception:
+                pass
+            res2 = await exec_mobile(base, new_sid, script, args)
+            return res2, new_sid
+        raise
 
 
 async def get_settings(base: str, sid: str) -> Dict[str, Any]:
