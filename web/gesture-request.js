@@ -20,6 +20,46 @@ async function safeFetch(url, opts, actionLabel){
     if (isExec){ ev('req', { script: scriptName||'(unknown)', ms, status: r.status }); }
     else if (isActions){ ev('req', { script: 'w3c: actions', ms, status: r.status }); }
     else if (isWdaTap){ ev('req', { script: 'wda: tap', ms, status: r.status }); }
+    // 410 自愈：当返回 SESSION_GONE 且本地有 UDID 时，尝试自动创建会话并重试一次
+    if (!r.ok && r.status === 410 && !opts.__selfHeal) {
+      try {
+        const js410 = await r.clone().json();
+        if (js410 && js410.code === 'SESSION_GONE') {
+          const baseLS = String(LS.getItem('ap.base')||'').trim();
+          const udid = String(LS.getItem('ap.udid')||'').trim();
+          if (baseLS && udid) {
+            try { toast('检测到会话失效，正在自动重建…', 'err'); } catch(_e){}
+            // 发起一次 create
+            const rCreate = await fetch(API + '/api/appium/create', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ base: baseLS, udid })
+            });
+            if (rCreate.ok) {
+              const j2 = await rCreate.json();
+              const newSid = (j2 && j2.sessionId) ? String(j2.sessionId) : '';
+              if (newSid) {
+                LS.setItem('ap.sid', newSid);
+                try { const ip = document.getElementById('ap-sid'); if (ip) ip.value = newSid; } catch(_e){}
+                try { toast('已自动重建会话，正在重试操作…', 'ok'); } catch(_e){}
+                // 用新 sid 重试一次原请求
+                const opts2 = Object.assign({}, opts, { __selfHeal: true });
+                try {
+                  if (opts2 && typeof opts2.body === 'string') {
+                    const b2 = JSON.parse(opts2.body || '{}');
+                    if (b2 && typeof b2 === 'object') { b2.sessionId = newSid; opts2.body = JSON.stringify(b2); }
+                  }
+                } catch(_e){}
+                const r2 = await fetch(url, opts2);
+                const ms2 = Math.round(performance.now() - t0);
+                if (isExec){ ev('req', { script: scriptName||'(unknown)', ms: ms2, status: r2.status, retried: true }); }
+                else if (isActions){ ev('req', { script: 'w3c: actions', ms: ms2, status: r2.status, retried: true }); }
+                return r2;
+              }
+            }
+          }
+        }
+      } catch (_e) { /* ignore self-heal parsing errors */ }
+    }
     if(!r.ok){
       let txt = '';
       try{ txt = await r.text(); }catch(_e){}
@@ -27,6 +67,18 @@ async function safeFetch(url, opts, actionLabel){
       try{ const j = JSON.parse(txt); brief = j.error || txt; }catch(_e){ brief = txt; }
       const hint = r.status===503 ? '（未检测到 WDA 会话，右下角“Appium 设置”创建或启用后端 WDA_AUTO_CREATE）' : '';
       toast(`[${actionLabel}] 失败 (${r.status})：` + (brief||'') + hint, 'err');
+    }
+    // 成功响应：若后端自动重建会话，顶层可能携带 { recreated: true, sessionId: '...' }
+    if (r.ok) {
+      try {
+        const js = await r.clone().json();
+        const newSid = js && js.recreated === true && typeof js.sessionId === 'string' ? js.sessionId.trim() : '';
+        if (newSid) {
+          LS.setItem('ap.sid', newSid);
+          try { const ip = document.getElementById('ap-sid'); if (ip) ip.value = newSid; } catch(_e){}
+          try { toast('会话已自动重建，SessionId 已更新', 'ok'); } catch(_e){}
+        }
+      } catch(_e) { /* 非 JSON 或无该字段，忽略 */ }
     }
     return r;
   }catch(err){
