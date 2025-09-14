@@ -52,7 +52,8 @@ async def api_appium_set(payload: Dict[str, Any]):
 
 @router.get("/api/appium/settings")
 async def api_appium_get(base: Optional[str] = None, sessionId: Optional[str] = None):
-    b = (base or core.APPIUM_BASE).rstrip("/") if (base or core.APPIUM_BASE) else None
+    b = (base or core.APPIUM_BASE).rstrip(
+        "/") if (base or core.APPIUM_BASE) else None
     sid = sessionId
     if not b or not sid:
         return JSONResponse(
@@ -62,7 +63,8 @@ async def api_appium_get(base: Optional[str] = None, sessionId: Optional[str] = 
         res = await ad.get_settings(b, sid)
         return {"value": res}
     except ad.AppiumInvalidSession as e:
-        core.logger.warning(f"appium settings GET invalid-session: base={b} sid={sid}")
+        core.logger.warning(
+            f"appium settings GET invalid-session: base={b} sid={sid}")
         return JSONResponse(
             {
                 "code": "SESSION_GONE",
@@ -76,13 +78,15 @@ async def api_appium_get(base: Optional[str] = None, sessionId: Optional[str] = 
             status_code=410,
         )
     except Exception as e:
-        core.logger.exception(f"appium settings GET failed: base={b} sid={sid}")
+        core.logger.exception(
+            f"appium settings GET failed: base={b} sid={sid}")
         return JSONResponse({"error": str(e)}, status_code=502)
 
 
 @router.get("/api/appium/sessions")
 async def api_appium_sessions(base: Optional[str] = None):
-    b = (base or core.APPIUM_BASE).rstrip("/") if (base or core.APPIUM_BASE) else None
+    b = (base or core.APPIUM_BASE).rstrip(
+        "/") if (base or core.APPIUM_BASE) else None
     if not b:
         return JSONResponse(
             {"error": "query param base is required or set APPIUM_BASE"},
@@ -111,11 +115,15 @@ async def api_appium_create(payload: Dict[str, Any]):
         "platformName": "iOS",
         "appium:automationName": "XCUITest",
         "appium:udid": udid,
-        "appium:platformVersion": "18.6.2", 
+        "appium:platformVersion": "18.6.2",
         "appium:wdaLocalPort": wda_port,
         "appium:mjpegServerPort": mjpeg_port,
+        "appium:webDriverAgentUrl": "http://127.0.0.1:8100",
+        # "appium:prebuildWDA": True,
+        "appium:showXcodeLog": True,
         # "appium:mjpegScreenshotUrl": "http://127.0.0.1:8090/stream",
-        # "appium:newCommandTimeout": int(new_cmd_to) if new_cmd_to is not None else 0,
+        # 让会话永不超时：默认 0（可被前端/调用方通过 newCommandTimeout 覆盖）
+        "appium:newCommandTimeout": int(new_cmd_to) if new_cmd_to is not None else 0,
         # "appium:preventWDAAttachments": True,
     }
     # 后端统一追加的优化型能力（不再由前端传入 extraCaps）
@@ -123,18 +131,18 @@ async def api_appium_create(payload: Dict[str, Any]):
         settings = {
             "mjpegFixOrientation": False,
             "boundElementsByIndex": True,
-            "mjpegServerFramerate": 10,
+            "mjpegServerFramerate": 24,
             "maxTypingFrequency": 60,
             "reduceMotion": False,
             "respectSystemAlerts": False,
             "elementResponseAttributes": "type,label",
             # "screenshotQuality": 3,
             # "mjpegScalingFactor": 17.06161117553711,
-            "mjpegScalingFactor": 45,
+            "mjpegScalingFactor": 100,
             "screenshotOrientation": "auto",
             "keyboardPrediction": 0,
             "defaultActiveApplication": "auto",
-            "mjpegServerScreenshotQuality": 90,
+            "mjpegServerScreenshotQuality": 25,
             "limitXPathContextScope": True,
             "autoClickAlertSelector": "",
             "keyboardAutocorrection": 0,
@@ -149,7 +157,10 @@ async def api_appium_create(payload: Dict[str, Any]):
             "includeNonModalElements": False,
             "acceptAlertButtonSelector": "",
             "animationCoolOffTimeout": 0,
+            "disableAutomaticScreenshots": True,  # 避免 XCTest 在每个交互后自动截一张，进一步减压
         }
+        # 注意：会话空闲超时应通过 capability `appium:newCommandTimeout` 控制；
+        # settings[newCommandTimeout] 无效，故不在 settings 注入，避免混淆。
         extraCaps: Dict[str, Any] = {}
         # 把 settings 作为 capabilities 注入（关键：appium:settings[<name>] 这种写法）
         for k, v in settings.items():
@@ -188,7 +199,8 @@ async def api_appium_create(payload: Dict[str, Any]):
 
 @router.get("/api/appium/last-session")
 async def api_appium_last_session(base: Optional[str] = None):
-    b = (base or core.APPIUM_BASE).rstrip("/") if (base or core.APPIUM_BASE) else None
+    b = (base or core.APPIUM_BASE).rstrip(
+        "/") if (base or core.APPIUM_BASE) else None
     if not b:
         return JSONResponse(
             {"error": "query param base is required or set APPIUM_BASE"},
@@ -322,7 +334,8 @@ async def api_appium_actions(payload: Dict[str, Any]):
             except Exception:
                 js = None
             if isinstance(js, dict):
-                val = js.get("value") if isinstance(js.get("value"), dict) else js
+                val = js.get("value") if isinstance(
+                    js.get("value"), dict) else js
                 err = (val or {}).get("error") or (val or {}).get("message")
                 if isinstance(err, str) and (
                     "invalid session id" in err.lower()

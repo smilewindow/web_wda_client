@@ -86,6 +86,7 @@ async def create_session(base: str, capabilities: Dict[str, Any]) -> Tuple[str, 
     if XCUITestOptions is not None:
         def _mk_opts() -> Any:
             opts = XCUITestOptions()
+            # opts.set_new_command_timeout(0)  # 或 Duration/秒数
             # Feed provided caps as-is
             for k, v in (capabilities or {}).items():
                 try:
@@ -109,6 +110,9 @@ async def create_session(base: str, capabilities: Dict[str, Any]) -> Tuple[str, 
                 if isinstance(k, str) and k.startswith("appium:"):
                     kk = k.split(":", 1)[1]
                 caps_legacy[kk] = v
+            # # 强制确保 newCommandTimeout 存在且为 0（永不超时），除非调用方明确覆盖
+            # if "newCommandTimeout" not in caps_legacy:
+            #     caps_legacy["newCommandTimeout"] = 0
             if AppiumOptions is None:
                 # 理论上 v3 应存在 AppiumOptions；若不存在，直接重抛到外层
                 raise RuntimeError("AppiumOptions is not available in this Appium Python client")

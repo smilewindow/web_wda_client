@@ -44,7 +44,7 @@ function setupInteractHandlers(){
     .on('down', (e)=>{
       log('down', { x:e.clientX, y:e.clientY, ch: 'appium' });
       isDown = true; downAt = performance.now();
-      currRect = img.getBoundingClientRect();
+      currRect = (typeof getDisplayRect === 'function') ? getDisplayRect() : img.getBoundingClientRect();
       const {x,y} = toDevicePtFast(e.clientX, e.clientY, currRect);
       downClient = {x:e.clientX, y:e.clientY};
       longPressTriggered = false; dragStarted = false;
@@ -80,7 +80,7 @@ function setupInteractHandlers(){
       }
       if (dragStarted){
         const t = Math.round(performance.now() - downAt);
-        const rect = currRect || img.getBoundingClientRect();
+        const rect = currRect || (typeof getDisplayRect === 'function' ? getDisplayRect() : img.getBoundingClientRect());
         const pdev = toDevicePtFast(e.clientX, e.clientY, rect);
         const last = dragTrace.length ? dragTrace[dragTrace.length-1] : null;
         const dxs = last ? (pdev.x - last.x) : 0, dys = last ? (pdev.y - last.y) : 0;
@@ -101,7 +101,7 @@ function setupInteractHandlers(){
     .on('up', (e)=>{
       log('up', { x:e.clientX, y:e.clientY, isDown, dragStarted, longPressTriggered });
       if (!isDown) return; isDown = false;
-      const rect = currRect || img.getBoundingClientRect();
+      const rect = currRect || (typeof getDisplayRect === 'function' ? getDisplayRect() : img.getBoundingClientRect());
       const p = toDevicePtFast(e.clientX, e.clientY, rect);
       clearPressTimer();
       let dur = performance.now() - downAt;
@@ -141,7 +141,27 @@ function setupInteractHandlers(){
           } catch(_e){}
         } else {
           // 一次性注入最终段（velocity）
-          void dragFromTo(ptDown || {x:p.x,y:p.y}, {x:p.x,y:p.y}, dur);
+          // 末速估计：使用最近 120ms 的位移作为提示速度（设备坐标/秒）
+          let vHint = null;
+          try{
+            const tr = dragTrace && dragTrace.length ? dragTrace.slice() : [];
+            const tNow = Math.round(dur);
+            tr.push({ x: p.x, y: p.y, t: tNow });
+            const WIN = 120; // ms
+            let j = tr.length - 2; // 倒数第二个开始
+            while (j >= 0 && (tNow - (tr[j]?.t||0)) < WIN) j--;
+            const k = Math.max(0, Math.min(tr.length - 2, j));
+            const a = tr[k];
+            const b = tr[tr.length - 1];
+            if (a && b) {
+              const dt = Math.max(1, Math.round((b.t||0) - (a.t||0))); // ms
+              const dx = (b.x - a.x);
+              const dy = (b.y - a.y);
+              const dist = Math.hypot(dx, dy); // 设备坐标单位
+              vHint = (dist / dt) * 1000; // 设备坐标/秒
+            }
+          }catch(_e){}
+          void dragFromTo(ptDown || {x:p.x,y:p.y}, {x:p.x,y:p.y}, dur, vHint);
         }
       }
       setMode('idle');

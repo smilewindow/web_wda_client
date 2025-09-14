@@ -129,7 +129,7 @@ function getPxScale(){
   const sy = (devicePt.h && devicePx.h) ? (devicePx.h / devicePt.h) : sx;
   return { sx, sy };
 }
-function calcAppiumDragArgs(from, to, durMs){
+function calcAppiumDragArgs(from, to, durMs, vHintDevPerSec){
   const { sx, sy } = getPxScale();
   const dx2 = (to.x - from.x) * sx; const dy2 = (to.y - from.y) * sy;
   const dist_px = Math.hypot(dx2, dy2);
@@ -143,19 +143,44 @@ function calcAppiumDragArgs(from, to, durMs){
   const v_flick = flickCoeff() * H;
   const v_small = 1.2 * H;
   let velocity;
+  // 将末速提示（设备坐标/秒）折算到像素/秒，采用均值尺度
+  let v_hint_px = NaN;
+  if (isFinite(vHintDevPerSec)) {
+    const s_avg = (Math.abs(sx) + Math.abs(sy)) / 2 || 1;
+    v_hint_px = vHintDevPerSec * s_avg;
+  }
   if (dist_px < 0.02 * H || dur_s < 0.06) {
     velocity = v_small;
   } else if (isFlick) {
     velocity = v_flick;
   } else {
     const v_est = dist_px / Math.max(0.03, dur_s);
-    velocity = Math.max(v_min, Math.min(v_max, v_est));
+    const v_base = Math.max(v_min, Math.min(v_max, v_est));
+    if (isFinite(v_hint_px)) {
+      // 末速更能反映“甩”的意图，这里给予更高权重
+      const v_mix = 0.8 * v_hint_px + 0.2 * v_base;
+      velocity = Math.max(v_min, Math.min(v_max, v_mix));
+    } else {
+      velocity = v_base;
+    }
   }
-  let press = isFlick ? 0.04 : 0.09;
+  // 起步更轻：高速度/甩动缩短 press，慢滑略微保留
+  let press;
+  if (isFlick) {
+    press = 0.045; // 原 0.04，保持轻快
+  } else {
+    const fast = velocity > (1.2 * H);
+    press = fast ? 0.06 : 0.075;
+  }
   press = Math.max(0.03, Math.min(0.15, press));
+  // 慢滑保留少量 hold，降低误触；甩动/大幅快速滑动不 hold
   let hold = 0.0;
-  if (dur_s > 0.6 && (dist_px / H) < 0.3) {
-    hold = 0.10;
+  if (!isFlick) {
+    if (dur_s > 0.6 && (dist_px / H) < 0.3) {
+      hold = 0.10;
+    } else if (velocity < (0.8 * H) && (dist_px / H) < 0.25) {
+      hold = 0.06;
+    }
   }
   return { pressDuration: press, holdDuration: hold, velocity: Math.round(velocity) };
 }
@@ -168,7 +193,7 @@ function isFlick(from, to, durMs){
   const FLICK_MIN_DIST_RATIO = 0.06;
   return (durMs <= FLICK_TIME_MS) && (dist_px >= FLICK_MIN_DIST_RATIO * H);
 }
-async function dragFromTo(from, to, durMs){
+async function dragFromTo(from, to, durMs, vHintDevPerSec){
   const { base, sid } = getAppiumBaseAndSid();
   if (!base || !sid){ toast('Appium 通道需要已配置 Base 与 Session', 'err'); return; }
   const mode = String((LS.getItem('gest.scroll.mode')||'velocity'));
@@ -177,7 +202,7 @@ async function dragFromTo(from, to, durMs){
     if (DRYRUN){ log('DRYRUN w3c actions skip send', actions); ev(isFlick(from, to, durMs) ? 'drag(flick)' : 'drag', { from, to, durationMs: Math.round(durMs) }); return; }
     await safeFetch(API + '/api/appium/actions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ base, sessionId: sid, actions }) }, 'W3C Actions');
   } else {
-    const argsDyn = calcAppiumDragArgs(from, to, durMs);
+    const argsDyn = calcAppiumDragArgs(from, to, durMs, vHintDevPerSec);
     const args = { pressDuration: argsDyn.pressDuration, holdDuration: argsDyn.holdDuration, fromX: Math.round(from.x), fromY: Math.round(from.y), toX: Math.round(to.x), toY: Math.round(to.y), velocity: argsDyn.velocity };
     if (DRYRUN){ log('DRYRUN drag skip send', { from, to, ...args }); ev(isFlick(from, to, durMs) ? 'drag(flick)' : 'drag', { from, to, durationMs: Math.round(durMs), velocity: args.velocity }); return; }
     ev(isFlick(from, to, durMs) ? 'drag(flick)' : 'drag', { from, to, durationMs: Math.round(durMs), velocity: args.velocity });
@@ -198,40 +223,56 @@ function buildW3CActionsFromTrace(trace){
   const actions = [];
   if (!trace || trace.length === 0) return [{ type:'pointer', id:'finger1', parameters:{ pointerType:'touch' }, actions: [] }];
 
-  const MAX_POINTS = 60;     // 上限，避免包体过大
-  const MIN_DT = 8;          // 每段最小持续时间（ms）
-  const MAX_DT = 200;        // 每段最大持续时间（ms），避免过大暂停
+  // 调优参数：降低点数与时长，加速执行
+  const MAX_POINTS = 24;     // 采样到不超过 24 个点（包含首尾）
+  const MIN_DT = 6;          // 每段最小持续时间（ms）
+  const MAX_DT = 120;        // 每段最大持续时间（ms）
+  const SPEEDUP = 0.65;      // 对每段 duration 乘以加速系数（0.65 更干脆）
+  const FIRST_PAUSE = false; // 是否在按下后补首段 pause
+  const KEEP_ZERO_MOVE_PAUSE = false; // 无位移时是否保留 pause
+
+  // 下采样：均匀抽样，确保包含最后一个点
+  const pts = [];
+  const total = trace.length;
+  if (total <= MAX_POINTS) {
+    for (let i=0;i<total;i++) pts.push(trace[i]);
+  } else {
+    const stride = Math.ceil((total - 1) / (MAX_POINTS - 1));
+    for (let i=0;i<total;i+=stride) pts.push(trace[i]);
+    if (pts[pts.length-1] !== trace[total-1]) pts.push(trace[total-1]);
+  }
 
   const seq = [];
-  const p0 = trace[0];
+  const p0 = pts[0];
   // 起点：绝对定位到起点
   seq.push({ type:'pointerMove', duration: 0, x: Math.round(p0.x), y: Math.round(p0.y), origin: 'viewport' });
   // 按下
   seq.push({ type:'pointerDown', button: 0 });
 
-  // 若首段有时间间隔，补一个 pause（更拟真）
-  if (trace.length > 1) {
-    const firstDt = Math.max(0, Math.round(trace[1].t - (trace[0].t||0)));
-    if (firstDt > 0) seq.push({ type:'pause', duration: Math.min(MAX_DT, Math.max(MIN_DT, firstDt)) });
+  // 首段 pause（可选，默认关闭以减少首帧停顿）
+  if (FIRST_PAUSE && pts.length > 1) {
+    const firstDt = Math.max(0, Math.round((pts[1].t||0) - (pts[0].t||0)));
+    const d = Math.min(MAX_DT, Math.max(MIN_DT, Math.round(firstDt * SPEEDUP)));
+    if (d > 0) seq.push({ type:'pause', duration: d });
   }
 
-  // 后续：使用相对位移（origin: 'pointer'），保持与示例一致
-  let used = 1; // 已使用的点数（除 p0）
-  for (let i=1; i<trace.length; i++){
-    const prev = trace[i-1];
-    const curr = trace[i];
-    const dtRaw = Math.round(curr.t - prev.t);
-    const dt = Math.min(MAX_DT, Math.max(MIN_DT, isFinite(dtRaw) ? dtRaw : MIN_DT));
+  // 后续：使用相对位移（origin: 'pointer'）
+  for (let i=1; i<pts.length; i++){
+    const prev = pts[i-1];
+    const curr = pts[i];
+    const dtRaw = Math.round((curr.t||0) - (prev.t||0));
+    let dt = Math.min(MAX_DT, Math.max(MIN_DT, isFinite(dtRaw) ? dtRaw : MIN_DT));
+    dt = Math.max(MIN_DT, Math.round(dt * SPEEDUP));
     const dx = Math.round(curr.x - prev.x);
     const dy = Math.round(curr.y - prev.y);
     if (dx === 0 && dy === 0){
-      // 无位移：用 pause 表示时间流逝
-      seq.push({ type:'pause', duration: dt });
+      if (KEEP_ZERO_MOVE_PAUSE){ seq.push({ type:'pause', duration: dt }); }
+      else {
+        // 跳过纯暂停，进一步压缩执行时间
+      }
     } else {
       seq.push({ type:'pointerMove', duration: dt, origin: 'pointer', x: dx, y: dy });
     }
-    used++;
-    if (used >= MAX_POINTS) break;
   }
 
   // 抬起

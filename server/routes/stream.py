@@ -12,7 +12,7 @@ router = APIRouter()
 async def stream():
     if not core.MJPEG_URL:
         return JSONResponse({"error": "MJPEG not configured. Set env MJPEG=http://host:port[/path]"}, status_code=503)
-
+    core.logger.info(f"MJPEG URL: {core.MJPEG_URL}")
     candidates = (
         "",
         "/mjpeg",

@@ -15,6 +15,7 @@
   <div id="wrap">
     <div id="phone">
       <img id="stream" alt="iPhone Stream" />
+      <iframe id="webrtc" title="WebRTC Stream" allow="autoplay; fullscreen; picture-in-picture"></iframe>
       <canvas id="overlay"></canvas>
       <div class="cursor" id="cursor"></div>
     </div>
@@ -64,7 +65,27 @@
   </div>
 
   <div id="appium-panel">
-    <h4>Appium MJPEG 设置</h4>
+    <h4>流源与 Appium 设置</h4>
+    <div class="row">
+      <label style="width:74px">流源</label>
+      <select id="stream-mode" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
+        <option value="mjpeg">MJPEG（后端 /stream）</option>
+        <option value="webrtc">WebRTC（自建推流）</option>
+      </select>
+    </div>
+    <div class="row">
+      <label style="width:74px">WebRTC</label>
+      <input type="text" id="webrtc-url" placeholder="http://127.0.0.1:8889/iphone1"/>
+      <label style="font-size:12px;opacity:.85"><input type="checkbox" id="webrtc-opts" checked /> 自动追加参数</label>
+      <button class="btn" id="stream-apply">应用流源</button>
+    </div>
+    <div class="row">
+      <label style="width:74px">缩放%</label>
+      <input type="range" min="50" max="200" step="5" id="view-zoom"/>
+      <span class="val" id="view-zoom-val"></span>
+    </div>
+    <hr style="border:none;border-top:1px solid var(--line);opacity:.6;margin:8px 0"/>
+    <h4 style="margin-top:0">Appium MJPEG 设置</h4>
     <div class="row">
       <label style="width:74px">Base</label>
       <input type="text" id="ap-base" placeholder="http://127.0.0.1:4723"/>

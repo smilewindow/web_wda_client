@@ -11,16 +11,101 @@ const HUD_API = document.querySelector('#hud-api code');
 HUD_API.textContent = API;
 
 const img = document.getElementById('stream');
+const webrtc = document.getElementById('webrtc');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
 
 const hudSize = document.getElementById('hud-size');
+
+// 流就绪状态（用于控制鼠标光标样式）
+let streamReady = false;
+function updateCursor(){
+  try{
+    const cur = streamReady ? 'pointer' : 'auto';
+    if (canvas) canvas.style.cursor = cur;
+    if (img) img.style.cursor = cur;
+    if (webrtc) webrtc.style.cursor = cur;
+    const phone = document.getElementById('phone');
+    if (phone) phone.style.cursor = cur;
+  }catch(_e){}
+}
 
 // 已移除直连 WDA 的 WebSocket 手势通道，前端仅走 Appium 通道。
 
 // 设备尺寸（pt 与 px），用于坐标映射
 let devicePt = { w: null, h: null };
 let devicePx = { w: null, h: null };
+
+// 流源管理（本地偏好）
+function getDefaultWebRTCUrl(){ return 'http://127.0.0.1:8889/iphone1'; }
+function getStreamMode(){ const m = String(LS.getItem('stream.mode')||'mjpeg'); return (m==='webrtc'?'webrtc':'mjpeg'); }
+function setStreamMode(m){ LS.setItem('stream.mode', (m==='webrtc')?'webrtc':'mjpeg'); }
+function getWebRTCUrl(){ return (LS.getItem('webrtc.url')||getDefaultWebRTCUrl()); }
+function setWebRTCUrl(u){ LS.setItem('webrtc.url', String(u||'')); }
+function isUseRecommended(){ return (LS.getItem('webrtc.opts')||'1') === '1'; }
+function setUseRecommended(v){ LS.setItem('webrtc.opts', v ? '1' : '0'); }
+function withRecommendedParams(u){
+  try{
+    const url = new URL(u, location.href);
+    const must = { controls:'false', muted:'true', autoplay:'true', playsinline:'true' };
+    for (const k of Object.keys(must)){
+      if (url.searchParams.get(k) == null) url.searchParams.set(k, must[k]);
+    }
+    return url.toString();
+  }catch(_e){
+    const suffix = 'controls=false&muted=true&autoplay=true&playsinline=true';
+    return u + (u.includes('?') ? '&' : '?') + suffix;
+  }
+}
+function getDisplayEl(){ return getStreamMode()==='webrtc' ? webrtc : img; }
+function getDeviceAspect(){
+  try{
+    if (devicePt && devicePt.w && devicePt.h) return Number(devicePt.w)/Number(devicePt.h);
+    if (devicePx && devicePx.w && devicePx.h) return Number(devicePx.w)/Number(devicePx.h);
+  }catch(_e){}
+  // 近似 iPhone 竖屏比例（9:19.5）作为兜底
+  return 9/19.5;
+}
+function getContentRectInViewport(){
+  const el = getDisplayEl();
+  let frame;
+  try { frame = el.getBoundingClientRect(); } catch(_e){ frame = { left:0, top:0, width:0, height:0, right:0, bottom:0 }; }
+  if (getStreamMode() !== 'webrtc') return frame;
+  const ar = getDeviceAspect();
+  if (!isFinite(ar) || ar <= 0 || !frame.width || !frame.height) return frame;
+  const fAR = frame.width / Math.max(1, frame.height);
+  let w, h, left, top;
+  if (fAR > ar) {
+    // 容器更宽：高度铺满，左右留边
+    h = frame.height;
+    w = h * ar;
+    left = frame.left + (frame.width - w) / 2;
+    top = frame.top;
+  } else {
+    // 容器更窄：宽度铺满，上下留边
+    w = frame.width;
+    h = w / ar;
+    left = frame.left;
+    top = frame.top + (frame.height - h) / 2;
+  }
+  return { left, top, width: w, height: h, right: left + w, bottom: top + h };
+}
+function getDisplayRect(){ return getContentRectInViewport(); }
+// 暴露给其他脚本（gesture-recognizer.js 使用）
+try { window.getDisplayRect = getDisplayRect; window.getDisplayEl = getDisplayEl; } catch(_e){}
+
+// 缩放（本地偏好）
+function getViewZoomPct(){ const v = Number(LS.getItem('view.zoom.pct')||'100'); return (isFinite(v)&&v>=50&&v<=200)?v:100; }
+function setViewZoomPct(n){ try{ LS.setItem('view.zoom.pct', String(Math.max(50, Math.min(200, Math.round(Number(n)||100))))); }catch(_e){} }
+function applyViewZoom(pct){
+  try{
+    const p = isFinite(pct) ? Math.max(50, Math.min(200, Math.round(pct))) : 100;
+    document.documentElement.style.setProperty('--zoom', String(p/100));
+    const vz = document.getElementById('view-zoom-val'); if (vz) vz.textContent = String(p);
+    // 等比缩放会改变渲染尺寸，需同步 overlay
+    resizeOverlay();
+  }catch(_e){}
+}
 
 // 轻量通知与包装请求 + 手势调试面板
 // 调试日志默认关闭：只显示高层手势（tap/press/drag/swipe）
@@ -113,13 +198,18 @@ async function fetchDeviceInfo() {
   } catch (err) { toast('获取设备信息失败：' + err, 'err'); }
 }
 
-// 让 overlay 与 <img> 渲染后的尺寸吻合
+// 让 overlay 与当前显示流的渲染尺寸吻合
 function resizeOverlay() {
-  let rect = img.getBoundingClientRect();
-  let left = img.offsetLeft, top = img.offsetTop, w = rect.width, h = rect.height;
+  const el = getDisplayEl();
+  let rect = getContentRectInViewport();
+  const phone = document.getElementById('phone') || el.parentElement || document.body;
+  const phoneRect = phone.getBoundingClientRect();
+  let left = Math.max(0, Math.round(rect.left - phoneRect.left));
+  let top = Math.max(0, Math.round(rect.top - phoneRect.top));
+  let w = rect.width, h = rect.height;
   if (!w || !h) {
     // 当流未就绪时回退到父容器或窗口尺寸，保证可接收指针事件
-    const host = document.getElementById('phone') || img.parentElement || document.body;
+    const host = phone;
     const r2 = host.getBoundingClientRect();
     w = r2.width || Math.min(window.innerWidth * 0.6, 480);
     h = r2.height || Math.min(window.innerHeight - 160, 800);
@@ -131,11 +221,12 @@ function resizeOverlay() {
   canvas.style.height = h + 'px';
   canvas.style.left = left + 'px';
   canvas.style.top = top + 'px';
+
 }
 
 // 画面上坐标 → 设备坐标（优先 pt，退化到 px）
 function toDevicePt(clientX, clientY) {
-  const rect = img.getBoundingClientRect();
+  const rect = getDisplayRect();
   const xOnImg = clientX - rect.left;
   const yOnImg = clientY - rect.top;
   const basisW = devicePt.w || devicePx.w || rect.width;
@@ -157,8 +248,12 @@ document.getElementById('btn-vol-up').onclick = () => { void mobileExec('mobile:
 document.getElementById('btn-vol-down').onclick = () => { void mobileExec('mobile: pressButton', { name: 'volumeDown' }, '音量-'); };
 let streamToastShown = false;
 document.getElementById('btn-reload').onclick = () => {
-  // 重新加载流并刷新设备尺寸
-  img.src = API + '/stream' + '#' + Math.random();
+  // 重新加载当前流并刷新设备尺寸
+  if (getStreamMode()==='webrtc') {
+    try { webrtc.src = getWebRTCUrl() + '#' + Math.random(); } catch(_e){}
+  } else {
+    img.src = API + '/stream' + '#' + Math.random();
+  }
   fetchDeviceInfo();
 };
 
@@ -184,6 +279,19 @@ function loadAppiumPrefs() {
   apScaleVal.textContent = apScale.value;
   apFpsVal.textContent = apFps.value;
   apQualityVal.textContent = apQuality.value;
+  // 流源 UI 同步
+  try {
+    const modeSel = document.getElementById('stream-mode');
+    const ipUrl = document.getElementById('webrtc-url');
+    const cbOpts = document.getElementById('webrtc-opts');
+    if (modeSel) modeSel.value = getStreamMode();
+    if (ipUrl) ipUrl.value = getWebRTCUrl();
+    if (cbOpts) cbOpts.checked = isUseRecommended();
+    // 视图缩放同步
+    const ipZ = document.getElementById('view-zoom');
+    if (ipZ) ipZ.value = String(getViewZoomPct());
+    applyViewZoom(getViewZoomPct());
+  } catch(_e){}
 }
 loadAppiumPrefs();
 
@@ -222,7 +330,7 @@ document.getElementById('ap-apply').onclick = async () => {
     } else {
       toast('已应用设置', 'ok');
       streamToastShown = false;
-      img.src = API + '/stream?' + Date.now();
+      reloadCurrentStream();
       fetchDeviceInfo();
       panel.style.display = 'none';
     }
@@ -230,6 +338,60 @@ document.getElementById('ap-apply').onclick = async () => {
     toast('网络错误: ' + err, 'err');
   }
 };
+
+// 视图缩放即时调节
+const vzInput = document.getElementById('view-zoom');
+if (vzInput) vzInput.oninput = () => { const n = Number(vzInput.value||'100'); setViewZoomPct(n); applyViewZoom(n); };
+
+// 应用流源
+const btnStreamApply = document.getElementById('stream-apply');
+if (btnStreamApply) btnStreamApply.onclick = () => {
+  const modeSel = document.getElementById('stream-mode');
+  const ipUrl = document.getElementById('webrtc-url');
+  const cbOpts = document.getElementById('webrtc-opts');
+  const mode = modeSel ? String(modeSel.value||'mjpeg') : 'mjpeg';
+  let url = ipUrl ? String(ipUrl.value||'') : '';
+  setStreamMode(mode);
+  const useRec = cbOpts ? !!cbOpts.checked : true;
+  setUseRecommended(useRec);
+  if (useRec && url) url = withRecommendedParams(url);
+  if (url) setWebRTCUrl(url); else setWebRTCUrl(getDefaultWebRTCUrl());
+  applyStreamMode();
+  toast('流源设置已应用', 'ok');
+};
+
+function applyStreamMode(){
+  const mode = getStreamMode();
+  // 切换流源时先标记未就绪，恢复默认光标
+  streamReady = false; updateCursor();
+  if (mode === 'webrtc'){
+    // 显示 webrtc，隐藏 mjpeg
+    webrtc.style.display = 'block';
+    img.style.display = 'none';
+    // 赋值/刷新 URL
+    let u = getWebRTCUrl();
+    if (isUseRecommended()) u = withRecommendedParams(u);
+    if (webrtc.src !== u) webrtc.src = u;
+  } else {
+    // 显示 mjpeg，隐藏 webrtc
+    img.style.display = 'block';
+    webrtc.style.display = 'none';
+    if (!img.src) img.src = API + '/stream?' + Date.now();
+  }
+  resizeOverlay();
+}
+
+function reloadCurrentStream(){
+  // 重新加载时标记未就绪
+  streamReady = false; updateCursor();
+  if (getStreamMode() === 'webrtc') {
+    let u = getWebRTCUrl();
+    if (isUseRecommended()) u = withRecommendedParams(u);
+    webrtc.src = u + '#' + Math.random();
+  } else {
+    img.src = API + '/stream?' + Date.now();
+  }
+}
 
 document.getElementById('ap-fetch').onclick = async () => {
   const base = apBase.value.trim();
@@ -243,7 +405,7 @@ document.getElementById('ap-fetch').onclick = async () => {
       LS.setItem('ap.sid', apSid.value);
       toast('已获取会话: ' + apSid.value, 'ok');
       streamToastShown = false;
-      img.src = API + '/stream?' + Date.now();
+      reloadCurrentStream();
       fetchDeviceInfo();
       return;
     }
@@ -255,7 +417,7 @@ document.getElementById('ap-fetch').onclick = async () => {
       LS.setItem('ap.sid', apSid.value);
       toast('已获取会话: ' + apSid.value, 'ok');
       streamToastShown = false;
-      img.src = API + '/stream?' + Date.now();
+      reloadCurrentStream();
       fetchDeviceInfo();
     } else {
       toast('未发现会话，请创建', 'err');
@@ -281,7 +443,7 @@ document.getElementById('ap-create').onclick = async () => {
       LS.setItem('ap.udid', udid);
       toast('会话已创建: ' + j.sessionId, 'ok');
       streamToastShown = false;
-      img.src = API + '/stream?' + Date.now();
+      reloadCurrentStream();
       fetchDeviceInfo();
     } else {
       toast('创建失败: ' + JSON.stringify(j).slice(0, 400), 'err');
@@ -348,13 +510,15 @@ document.getElementById('ap-optimize').onclick = async () => {
 };
 
 // 初始加载
-img.src = API + '/stream?' + Date.now();
-img.onload = () => resizeOverlay();
-img.onerror = () => { console.warn('[stream] failed to load:', img.src); if (!streamToastShown) { toast('画面流连接失败：请检查 MJPEG 是否可用（环境变量 MJPEG 需指向有效流，常见为 9100）。', 'err'); streamToastShown = true; } };
+// 初始加载：根据模式选择流源
+applyStreamMode();
+img.onload = () => { streamReady = true; updateCursor(); resizeOverlay(); };
+try { webrtc.onload = () => { streamReady = true; updateCursor(); resizeOverlay(); }; } catch(_e){}
+img.onerror = () => { console.warn('[stream] failed to load:', img.src); streamReady = false; updateCursor(); if (!streamToastShown) { toast('画面流连接失败：请检查 MJPEG 是否可用（环境变量 MJPEG 需指向有效流，常见为 9100）。', 'err'); streamToastShown = true; } };
 window.onresize = () => resizeOverlay();
 // 跟随鼠标显示指示点
 canvas.addEventListener('pointermove', (e) => {
-  const rect = img.getBoundingClientRect();
+  const rect = getDisplayRect();
   drawDot(e.clientX - rect.left, e.clientY - rect.top);
 });
 // 禁用默认长按弹出菜单，避免干扰长按定时器
