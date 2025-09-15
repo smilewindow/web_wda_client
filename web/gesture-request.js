@@ -106,24 +106,51 @@ async function mobileExec(script, args, label){
   }
 }
 async function tapAt(x,y){
+  // 通过 W3C Actions 实现点击：下压-短暂停-抬起
   log('tapAt', { ch:'appium', x, y });
-  if (DRYRUN){ log('DRYRUN tap skip send'); return; }
-  await mobileExec('mobile: tap', { x: Math.round(x), y: Math.round(y) }, '点击');
+  const actions = [{
+    type: 'pointer', id: 'finger1', parameters: { pointerType: 'touch' },
+    actions: [
+      { type: 'pointerMove', duration: 0, origin: 'viewport', x: Math.round(x), y: Math.round(y) },
+      { type: 'pointerDown', button: 0 },
+      { type: 'pause', duration: 20 }, // 短暂停提高稳定性
+      { type: 'pointerUp', button: 0 }
+    ]
+  }];
+  if (DRYRUN){ log('DRYRUN w3c tap skip send', actions); return; }
+  const { base, sid } = getAppiumBaseAndSid();
+  if (!base || !sid){ toast('Appium 通道需要已配置 Base 与 Session', 'err'); return; }
+  await safeFetch(API + '/api/appium/actions', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ base, sessionId: sid, actions })
+  }, 'W3C Actions');
 }
 async function longPressAt(x,y, durationMs){
+  // 通过 W3C Actions 实现长按：按住指定时长
   const durMs = Math.max(200, Math.round(durationMs||600));
   log('longPressAt', { ch:'appium', x, y, durationMs: durMs });
-  if (DRYRUN){ log('DRYRUN long-press skip send'); return; }
-  await mobileExec('mobile: touchAndHold', { x: Math.round(x), y: Math.round(y), duration: durMs/1000 }, '长按');
+  const actions = [{
+    type: 'pointer', id: 'finger1', parameters: { pointerType: 'touch' },
+    actions: [
+      { type: 'pointerMove', duration: 0, origin: 'viewport', x: Math.round(x), y: Math.round(y) },
+      { type: 'pointerDown', button: 0 },
+      { type: 'pause', duration: durMs },
+      { type: 'pointerUp', button: 0 }
+    ]
+  }];
+  if (DRYRUN){ log('DRYRUN w3c long-press skip send', actions); return; }
+  const { base, sid } = getAppiumBaseAndSid();
+  if (!base || !sid){ toast('Appium 通道需要已配置 Base 与 Session', 'err'); return; }
+  await safeFetch(API + '/api/appium/actions', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ base, sessionId: sid, actions })
+  }, 'W3C Actions');
 }
-// 已移除：甩动力度偏好相关函数（面板与存储已删除）
+
 function getPxScale(){
   const sx = (devicePt.w && devicePx.w) ? (devicePx.w / devicePt.w) : 1;
   const sy = (devicePt.h && devicePx.h) ? (devicePx.h / devicePt.h) : sx;
   return { sx, sy };
 }
-// 已移除：velocity 参数计算与 isFlick 判定；固定 W3C 方案无需这些辅助
-// 已移除：速度拖拽（mobile: dragFromToWithVelocity）路径；前端固定使用 W3C Actions
+
 async function pinchAt(center, scale){
   let s = scale; if (!isFinite(s) || s === 0) s = 1;
   s = Math.max(0.5, Math.min(2.0, s));
@@ -134,8 +161,24 @@ async function pinchAt(center, scale){
 
 // 依据采样轨迹构造 W3C pointer actions（touch）
 // W3C 滚动调优：固定使用方案A参数（粗分段，≈45–50ms/段；无首段 pause）
+function getW3CTuneKey(){
+  try {
+    const v = String(LS.getItem('gest.w3c.tune')||'A');
+    return (['A','B','fast'].includes(v) ? v : 'A');
+  } catch(_e){ return 'A'; }
+}
 function getW3CTunePreset(){
-  return { MAX_POINTS: 4, MIN_DT: 12, MAX_DT: 120, SPEEDUP: 0.95, FIRST_PAUSE: false, KEEP_ZERO_MOVE_PAUSE: false };
+  const k = getW3CTuneKey();
+  if (k === 'B') {
+    // 方案B（更猛）
+    return { MAX_POINTS: 24, MIN_DT: 3, MAX_DT: 100, SPEEDUP: 0.35, FIRST_PAUSE: false, KEEP_ZERO_MOVE_PAUSE: false };
+  }
+  if (k === 'fast') {
+    // fast（原始极速版）
+    return { MAX_POINTS: 16, MIN_DT: 5, MAX_DT: 100, SPEEDUP: 0.50, FIRST_PAUSE: false, KEEP_ZERO_MOVE_PAUSE: false };
+  }
+  // 方案A（更猛·稳健）
+  return { MAX_POINTS: 20, MIN_DT: 4, MAX_DT: 100, SPEEDUP: 0.40, FIRST_PAUSE: false, KEEP_ZERO_MOVE_PAUSE: false };
 }
 function buildW3CActionsFromTrace(trace){
   // trace: [{x,y,t}] t=ms 相对起点
@@ -151,7 +194,7 @@ function buildW3CActionsFromTrace(trace){
   const FIRST_PAUSE = !!preset.FIRST_PAUSE;
   const KEEP_ZERO_MOVE_PAUSE = !!preset.KEEP_ZERO_MOVE_PAUSE;
 
-  // 下采样：均匀抽样，确保包含最后一个点
+  // 下采样：均匀抽样（MAX_POINTS 等步抽样），确保包含最后一个点（原始方案A）
   const pts = [];
   const total = trace.length;
   if (total <= MAX_POINTS) {
@@ -195,40 +238,7 @@ function buildW3CActionsFromTrace(trace){
     }
   }
 
-  // 对过长的移动段做均分规整，使每段更接近 ~48ms（所有 W3C 滚动均生效）
-  try {
-    const TARGET_DT = 48; // 目标分段时长（近似样例的 46–47ms）
-    const MAX_PARTS = 3;
-    const newSeq = [];
-    for (const a of seq) {
-      if (a && a.type === 'pointerMove' && a.origin === 'pointer' && isFinite(a.duration) && a.duration > 0) {
-        const dt = Math.max(1, Math.round(a.duration));
-        // 计算建议分段数，限制在 1..MAX_PARTS
-        let n = Math.round(dt / TARGET_DT);
-        if (!isFinite(n) || n < 1) n = 1; else if (n > MAX_PARTS) n = MAX_PARTS;
-        if (n === 1) { newSeq.push(a); continue; }
-        // 按 n 段等分 duration，并用“前段+1”的方式分配余数
-        const base = Math.floor(dt / n);
-        let rem = dt - base * n; // 0..n-1
-        // 等比分配相对位移，保证整段位移总和不变
-        const DX = Number(a.x||0), DY = Number(a.y||0);
-        for (let i=0;i<n;i++){
-          const dPart = base + (rem > 0 ? 1 : 0); if (rem > 0) rem--;
-          // 均匀切分 dx/dy，使用累计四舍五入差值确保整和
-          const x1 = Math.round(DX * (i+1) / n);
-          const x0 = Math.round(DX * (i) / n);
-          const y1 = Math.round(DY * (i+1) / n);
-          const y0 = Math.round(DY * (i) / n);
-          const dx = x1 - x0; const dy = y1 - y0;
-          newSeq.push({ type:'pointerMove', duration: dPart, origin:'pointer', x: dx, y: dy });
-        }
-      } else {
-        newSeq.push(a);
-      }
-    }
-    // 用规整后的序列替换
-    seq.length = 0; Array.prototype.push.apply(seq, newSeq);
-  } catch(_e) { /* 忽略规整异常，使用原序列 */ }
+  // 极速版不做额外“均分规整”，保留更强的速度与节奏起伏
 
   // 抬起
   seq.push({ type:'pointerUp', button: 0 });

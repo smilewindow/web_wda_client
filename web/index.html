@@ -40,7 +40,14 @@
       </div>
       <!-- 已移除：甩动力度（固定内部策略，无需面板配置） -->
       <!-- 已移除：滚动方案选择；前端固定使用 W3C Actions（轨迹回放）方案 -->
-      <!-- 已移除：滚动调优（W3C）选项；前端固定使用方案A参数与规整策略 -->
+      <div class="row">
+        <label for="gest-w3c-tune" class="muted">滚动调优（W3C）</label>
+        <select id="gest-w3c-tune" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
+          <option value="A">方案A（更猛·稳健）</option>
+          <option value="B">方案B（更猛）</option>
+          <option value="fast">fast（原始极速版）</option>
+        </select>
+      </div>
       <!-- 移除 press 持续时间设置，交由算法自适应 -->
       <button id="gest-close" class="btn">关闭</button>
     </header>

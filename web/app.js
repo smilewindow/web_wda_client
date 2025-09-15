@@ -143,6 +143,7 @@ function syncGestPanel() {
   const p = document.getElementById('gest-panel');
   const cbDbg = document.getElementById('gest-debug');
   const cbDry = document.getElementById('gest-dryrun');
+  const ipW3CTune = document.getElementById('gest-w3c-tune');
   if (!p) return;
   if (cbDbg) { cbDbg.checked = GEST_LOG; cbDbg.onchange = () => { GEST_LOG = cbDbg.checked; LS.setItem('gest.debug', GEST_LOG ? '1' : '0'); }; }
   if (cbDry) { cbDry.checked = DRYRUN; cbDry.onchange = () => { DRYRUN = cbDry.checked; LS.setItem('gest.dryrun', DRYRUN ? '1' : '0'); }; }
@@ -150,7 +151,12 @@ function syncGestPanel() {
   // 已移除长按时长设置（固定 500ms）与 press 时长设置
   // 已移除：甩动力度选项与存储（固定内部策略）
   // 已移除：滚动方案选择（固定使用 W3C Actions 方案）
-  // 已移除：滚动调优选项（W3C），固定为方案A（见 gesture-request.js）
+  // 滚动调优（W3C）：提供 A/B 两档切换
+  if (ipW3CTune) {
+    const k = (LS.getItem('gest.w3c.tune') || 'A');
+    ipW3CTune.value = (['A','B','fast'].includes(k) ? k : 'A');
+    ipW3CTune.onchange = () => { const v = String(ipW3CTune.value || 'A'); LS.setItem('gest.w3c.tune', v); };
+  }
   const btnClear = document.getElementById('gest-clear'); if (btnClear) btnClear.onclick = () => { if (logBox) logBox.innerHTML = ''; };
   const btnClose = document.getElementById('gest-close'); if (btnClose) btnClose.onclick = () => { p.style.display = 'none'; };
 }

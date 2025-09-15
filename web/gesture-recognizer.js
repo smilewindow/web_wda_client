@@ -84,7 +84,7 @@ function setupInteractHandlers(){
         const pdev = toDevicePtFast(e.clientX, e.clientY, rect);
         const last = dragTrace.length ? dragTrace[dragTrace.length-1] : null;
         const dxs = last ? (pdev.x - last.x) : 0, dys = last ? (pdev.y - last.y) : 0;
-        // 记录采样点（含时间）；当前仅使用 W3C 方案
+        // 记录采样点（含时间）；激进采样（≈10ms 或 ≥1px）
         if (!last || t - last.t >= 10 || (dxs*dxs + dys*dys) >= 1){
           dragTrace.push({ x: pdev.x, y: pdev.y, t });
           if (dragTrace.length > 80) dragTrace.splice(1, 1);
@@ -144,7 +144,7 @@ function setupGestureRecognizer(){
   // 防重复绑定：若已初始化则直接返回
   try { if (window.__GESTURE_SETUP__) return; window.__GESTURE_SETUP__ = true; } catch(_e) {}
   updatePumpPill();
-  mappingPill && (mappingPill.textContent = 'tap→mobile: tap · longPress→mobile: touchAndHold · drag(flick/drag)→W3C Actions');
+  mappingPill && (mappingPill.textContent = 'tap→W3C Actions · longPress→W3C Actions · drag(flick/drag)→W3C Actions');
   try{ setupInteractHandlers(); }catch(_e){}
   if (typeof interact !== 'undefined') {
     const target = canvas;
