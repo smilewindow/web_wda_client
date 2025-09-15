@@ -84,17 +84,12 @@ function setupInteractHandlers(){
         const pdev = toDevicePtFast(e.clientX, e.clientY, rect);
         const last = dragTrace.length ? dragTrace[dragTrace.length-1] : null;
         const dxs = last ? (pdev.x - last.x) : 0, dys = last ? (pdev.y - last.y) : 0;
-        // 记录采样点（含时间）；仅在 W3C 滚动方案下打印 sample 日志
-        if (!last || t - last.t >= 12 || (dxs*dxs + dys*dys) >= 4){
+        // 记录采样点（含时间）；当前仅使用 W3C 方案
+        if (!last || t - last.t >= 10 || (dxs*dxs + dys*dys) >= 1){
           dragTrace.push({ x: pdev.x, y: pdev.y, t });
           if (dragTrace.length > 80) dragTrace.splice(1, 1);
-          // 在 velocity（速度拖拽）模式下不打印 sample；仅 W3C 模式打印
-          try {
-            const mode = String((LS.getItem('gest.scroll.mode')||'velocity'));
-            if (mode === 'w3c') {
-              ev('sample', { x: Math.round(pdev.x), y: Math.round(pdev.y), t });
-            }
-          } catch(_e){}
+          // 打印 sample 日志（仅 W3C 方案，当前已固定为 W3C）
+          try { ev('sample', { x: Math.round(pdev.x), y: Math.round(pdev.y), t }); } catch(_e){}
         }
       }
     })
@@ -132,37 +127,12 @@ function setupInteractHandlers(){
       } else if (!dragStarted && dur <= 250){
         setMode('tap'); ev('tap', { at: {x:p.x, y:p.y} }); void adapter.tap({x:p.x, y:p.y});
       } else if (dragStarted){
-        const mode = String((LS.getItem('gest.scroll.mode')||'velocity'));
-        if (mode === 'w3c'){
-          try {
-            const tr = dragTrace.slice();
-            tr.push({ x: p.x, y: p.y, t: Math.round(dur) });
-            void sendW3CTrace(tr);
-          } catch(_e){}
-        } else {
-          // 一次性注入最终段（velocity）
-          // 末速估计：使用最近 120ms 的位移作为提示速度（设备坐标/秒）
-          let vHint = null;
-          try{
-            const tr = dragTrace && dragTrace.length ? dragTrace.slice() : [];
-            const tNow = Math.round(dur);
-            tr.push({ x: p.x, y: p.y, t: tNow });
-            const WIN = 120; // ms
-            let j = tr.length - 2; // 倒数第二个开始
-            while (j >= 0 && (tNow - (tr[j]?.t||0)) < WIN) j--;
-            const k = Math.max(0, Math.min(tr.length - 2, j));
-            const a = tr[k];
-            const b = tr[tr.length - 1];
-            if (a && b) {
-              const dt = Math.max(1, Math.round((b.t||0) - (a.t||0))); // ms
-              const dx = (b.x - a.x);
-              const dy = (b.y - a.y);
-              const dist = Math.hypot(dx, dy); // 设备坐标单位
-              vHint = (dist / dt) * 1000; // 设备坐标/秒
-            }
-          }catch(_e){}
-          void dragFromTo(ptDown || {x:p.x,y:p.y}, {x:p.x,y:p.y}, dur, vHint);
-        }
+        // 固定使用 W3C 方案：发送轨迹回放
+        try {
+          const tr = dragTrace.slice();
+          tr.push({ x: p.x, y: p.y, t: Math.round(dur) });
+          void sendW3CTrace(tr);
+        } catch(_e){}
       }
       setMode('idle');
       // 统一复位，确保下次初始状态一致
@@ -174,7 +144,7 @@ function setupGestureRecognizer(){
   // 防重复绑定：若已初始化则直接返回
   try { if (window.__GESTURE_SETUP__) return; window.__GESTURE_SETUP__ = true; } catch(_e) {}
   updatePumpPill();
-  mappingPill && (mappingPill.textContent = 'tap→mobile: tap · longPress→mobile: touchAndHold · drag(flick/drag)→mobile: dragFromToWithVelocity');
+  mappingPill && (mappingPill.textContent = 'tap→mobile: tap · longPress→mobile: touchAndHold · drag(flick/drag)→W3C Actions');
   try{ setupInteractHandlers(); }catch(_e){}
   if (typeof interact !== 'undefined') {
     const target = canvas;

@@ -110,54 +110,58 @@ async def api_appium_create(payload: Dict[str, Any]):
     new_cmd_to = payload.get("newCommandTimeout", 0)
     if not base or not udid:
         return JSONResponse({"error": "base and udid are required"}, status_code=400)
-    # 基础能力
+    # 基础能力（按推荐默认值；旧项保留为注释便于回滚/对照）
     caps: Dict[str, Any] = {
         "platformName": "iOS",
         "appium:automationName": "XCUITest",
         "appium:udid": udid,
-        "appium:platformVersion": "18.6.2",
         "appium:wdaLocalPort": wda_port,
         "appium:mjpegServerPort": mjpeg_port,
-        "appium:webDriverAgentUrl": "http://127.0.0.1:8100",
-        # "appium:prebuildWDA": True,
+        # "appium:webDriverAgentUrl": "http://127.0.0.1:8100",
+        # "appium:mjpegScreenshotUrl": "http://127.0.0.1:9100",
+        # "appium:usePrebuiltWDA": True,
+        # "appium:usePreinstalledWDA": True,
+        # "appium:updatedWDABundleId": "net.xuyuqin.WebDriverAgentRunner",
+        # "appium:updatedWDABundleIdSuffix": "",
+        # "appium:wdaLaunchTimeout": 120000,
+        # "appium:wdaStartupRetries": 5,
+        # "appium:wdaStartupRetryInterval": 10000,
+        # "appium:useNewWDA": True,            # 旧：每次重装 WDA，慢
+        # "appium:useNewWDA": False,            # 新：默认复用 WDA（更快更稳），需要强制重装时再显式传 true
+        # "appium:usePrebuiltWDA": True,
         "appium:showXcodeLog": True,
-        # "appium:mjpegScreenshotUrl": "http://127.0.0.1:8090/stream",
         # 让会话永不超时：默认 0（可被前端/调用方通过 newCommandTimeout 覆盖）
         "appium:newCommandTimeout": int(new_cmd_to) if new_cmd_to is not None else 0,
-        # "appium:preventWDAAttachments": True,
     }
     # 后端统一追加的优化型能力（不再由前端传入 extraCaps）
     try:
         settings = {
-            "mjpegFixOrientation": False,
+            "mjpegFixOrientation": False,                 
             "boundElementsByIndex": True,
             "mjpegServerFramerate": 24,
             "maxTypingFrequency": 60,
-            "reduceMotion": False,
+            "reduceMotion": False,                        
             "respectSystemAlerts": False,
-            "elementResponseAttributes": "type,label",
-            # "screenshotQuality": 3,
-            # "mjpegScalingFactor": 17.06161117553711,
+            "elementResponseAttributes": "type,label",   
             "mjpegScalingFactor": 100,
             "screenshotOrientation": "auto",
-            "keyboardPrediction": 0,
-            "defaultActiveApplication": "auto",
+            "keyboardPrediction": 0,                      
+            "defaultActiveApplication": "auto",           
             "mjpegServerScreenshotQuality": 25,
             "limitXPathContextScope": True,
             "autoClickAlertSelector": "",
-            "keyboardAutocorrection": 0,
+            "keyboardAutocorrection": 0,                  
             "useFirstMatch": True,
             "defaultAlertAction": "",
             "shouldUseCompactResponses": True,
             "dismissAlertButtonSelector": "",
-            "activeAppDetectionPoint": "64.00,64.00",
+            "activeAppDetectionPoint": "64.00,64.00",     
             "useClearTextShortcut": True,
-            "snapshotMaxDepth": 0,
+            "snapshotMaxDepth": 0,                        
             "waitForIdleTimeout": 0,
             "includeNonModalElements": False,
             "acceptAlertButtonSelector": "",
             "animationCoolOffTimeout": 0,
-            "disableAutomaticScreenshots": True,  # 避免 XCTest 在每个交互后自动截一张，进一步减压
         }
         # 注意：会话空闲超时应通过 capability `appium:newCommandTimeout` 控制；
         # settings[newCommandTimeout] 无效，故不在 settings 注入，避免混淆。
@@ -166,21 +170,6 @@ async def api_appium_create(payload: Dict[str, Any]):
         for k, v in settings.items():
             extraCaps[f"appium:settings[{k}]"] = v
         caps.update(extraCaps)
-        # caps.update(
-        #     {
-        #         "appium:mjpegScalingFactor": 17.06161117553711,
-        #         "appium:mjpegServerFramerate": 10,
-        #         "appium:mjpegServerScreenshotQuality": 75,
-        #         "appium:waitForQuiescence": False,
-        #         "appium:waitForIdleTimeout": 0,
-        #         "appium:wdaEventloopIdleDelay": 0,
-        #         "appium:simpleIsVisibleCheck": True,
-        #         "appium:disableAutomaticScreenshots": True,
-        #         "appium:showXcodeLog": True,
-        #         "appium:showIOSLog": False,
-        #         "appium:logTimestamps": True,
-        #     }
-        # )
     except Exception:
         pass
     if bundle_id:

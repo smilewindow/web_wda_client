@@ -38,21 +38,9 @@
       <div class="row">
         <!-- 长按阈值设置已移除，固定为 500ms -->
       </div>
-      <div class="row">
-        <label for="gest-intensity" class="muted">甩动力度</label>
-        <select id="gest-intensity" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
-          <option value="light">轻</option>
-          <option value="medium">中</option>
-          <option value="strong">强</option>
-        </select>
-      </div>
-      <div class="row">
-        <label for="gest-scroll-mode" class="muted">滚动方案</label>
-        <select id="gest-scroll-mode" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
-          <option value="velocity">速度拖拽（mobile: dragFromToWithVelocity）</option>
-          <option value="w3c">W3C Actions（轨迹回放）</option>
-        </select>
-      </div>
+      <!-- 已移除：甩动力度（固定内部策略，无需面板配置） -->
+      <!-- 已移除：滚动方案选择；前端固定使用 W3C Actions（轨迹回放）方案 -->
+      <!-- 已移除：滚动调优（W3C）选项；前端固定使用方案A参数与规整策略 -->
       <!-- 移除 press 持续时间设置，交由算法自适应 -->
       <button id="gest-close" class="btn">关闭</button>
     </header>

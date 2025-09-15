@@ -116,99 +116,14 @@ async function longPressAt(x,y, durationMs){
   if (DRYRUN){ log('DRYRUN long-press skip send'); return; }
   await mobileExec('mobile: touchAndHold', { x: Math.round(x), y: Math.round(y), duration: durMs/1000 }, '长按');
 }
-function getFlickIntensity(){
-  const v = String(LS.getItem('gest.flick.intensity')||'light');
-  return (v==='light'||v==='strong') ? v : 'light';
-}
-function flickCoeff(){
-  const m = { light: 1.6, medium: 1.9, strong: 2.2 };
-  return m[getFlickIntensity()] || 1.9;
-}
+// 已移除：甩动力度偏好相关函数（面板与存储已删除）
 function getPxScale(){
   const sx = (devicePt.w && devicePx.w) ? (devicePx.w / devicePt.w) : 1;
   const sy = (devicePt.h && devicePx.h) ? (devicePx.h / devicePt.h) : sx;
   return { sx, sy };
 }
-function calcAppiumDragArgs(from, to, durMs, vHintDevPerSec){
-  const { sx, sy } = getPxScale();
-  const dx2 = (to.x - from.x) * sx; const dy2 = (to.y - from.y) * sy;
-  const dist_px = Math.hypot(dx2, dy2);
-  const dur_s = Math.max(0.001, (durMs||0)/1000);
-  const H = Number(devicePx.h||0) || img.naturalHeight || 1920;
-  const FLICK_TIME_MS = 250;
-  const FLICK_MIN_DIST_RATIO = 0.06;
-  const isFlick = (durMs <= FLICK_TIME_MS) && (dist_px >= FLICK_MIN_DIST_RATIO * H);
-  const v_min = 0.6 * H;
-  const v_max = 2.2 * H;
-  const v_flick = flickCoeff() * H;
-  const v_small = 1.2 * H;
-  let velocity;
-  // 将末速提示（设备坐标/秒）折算到像素/秒，采用均值尺度
-  let v_hint_px = NaN;
-  if (isFinite(vHintDevPerSec)) {
-    const s_avg = (Math.abs(sx) + Math.abs(sy)) / 2 || 1;
-    v_hint_px = vHintDevPerSec * s_avg;
-  }
-  if (dist_px < 0.02 * H || dur_s < 0.06) {
-    velocity = v_small;
-  } else if (isFlick) {
-    velocity = v_flick;
-  } else {
-    const v_est = dist_px / Math.max(0.03, dur_s);
-    const v_base = Math.max(v_min, Math.min(v_max, v_est));
-    if (isFinite(v_hint_px)) {
-      // 末速更能反映“甩”的意图，这里给予更高权重
-      const v_mix = 0.8 * v_hint_px + 0.2 * v_base;
-      velocity = Math.max(v_min, Math.min(v_max, v_mix));
-    } else {
-      velocity = v_base;
-    }
-  }
-  // 起步更轻：高速度/甩动缩短 press，慢滑略微保留
-  let press;
-  if (isFlick) {
-    press = 0.045; // 原 0.04，保持轻快
-  } else {
-    const fast = velocity > (1.2 * H);
-    press = fast ? 0.06 : 0.075;
-  }
-  press = Math.max(0.03, Math.min(0.15, press));
-  // 慢滑保留少量 hold，降低误触；甩动/大幅快速滑动不 hold
-  let hold = 0.0;
-  if (!isFlick) {
-    if (dur_s > 0.6 && (dist_px / H) < 0.3) {
-      hold = 0.10;
-    } else if (velocity < (0.8 * H) && (dist_px / H) < 0.25) {
-      hold = 0.06;
-    }
-  }
-  return { pressDuration: press, holdDuration: hold, velocity: Math.round(velocity) };
-}
-function isFlick(from, to, durMs){
-  const { sx, sy } = getPxScale();
-  const dx2 = (to.x - from.x) * sx; const dy2 = (to.y - from.y) * sy;
-  const dist_px = Math.hypot(dx2, dy2);
-  const H = Number(devicePx.h||0) || img.naturalHeight || 1920;
-  const FLICK_TIME_MS = 250;
-  const FLICK_MIN_DIST_RATIO = 0.06;
-  return (durMs <= FLICK_TIME_MS) && (dist_px >= FLICK_MIN_DIST_RATIO * H);
-}
-async function dragFromTo(from, to, durMs, vHintDevPerSec){
-  const { base, sid } = getAppiumBaseAndSid();
-  if (!base || !sid){ toast('Appium 通道需要已配置 Base 与 Session', 'err'); return; }
-  const mode = String((LS.getItem('gest.scroll.mode')||'velocity'));
-  if (mode === 'w3c') {
-    const actions = buildW3CActionsFromTrace([{x:from.x,y:from.y,t:0},{x:to.x,y:to.y,t:Math.max(1,Math.round(durMs||80))}]);
-    if (DRYRUN){ log('DRYRUN w3c actions skip send', actions); ev(isFlick(from, to, durMs) ? 'drag(flick)' : 'drag', { from, to, durationMs: Math.round(durMs) }); return; }
-    await safeFetch(API + '/api/appium/actions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ base, sessionId: sid, actions }) }, 'W3C Actions');
-  } else {
-    const argsDyn = calcAppiumDragArgs(from, to, durMs, vHintDevPerSec);
-    const args = { pressDuration: argsDyn.pressDuration, holdDuration: argsDyn.holdDuration, fromX: Math.round(from.x), fromY: Math.round(from.y), toX: Math.round(to.x), toY: Math.round(to.y), velocity: argsDyn.velocity };
-    if (DRYRUN){ log('DRYRUN drag skip send', { from, to, ...args }); ev(isFlick(from, to, durMs) ? 'drag(flick)' : 'drag', { from, to, durationMs: Math.round(durMs), velocity: args.velocity }); return; }
-    ev(isFlick(from, to, durMs) ? 'drag(flick)' : 'drag', { from, to, durationMs: Math.round(durMs), velocity: args.velocity });
-    await mobileExec('mobile: dragFromToWithVelocity', args, '拖拽');
-  }
-}
+// 已移除：velocity 参数计算与 isFlick 判定；固定 W3C 方案无需这些辅助
+// 已移除：速度拖拽（mobile: dragFromToWithVelocity）路径；前端固定使用 W3C Actions
 async function pinchAt(center, scale){
   let s = scale; if (!isFinite(s) || s === 0) s = 1;
   s = Math.max(0.5, Math.min(2.0, s));
@@ -218,18 +133,23 @@ async function pinchAt(center, scale){
 }
 
 // 依据采样轨迹构造 W3C pointer actions（touch）
+// W3C 滚动调优：固定使用方案A参数（粗分段，≈45–50ms/段；无首段 pause）
+function getW3CTunePreset(){
+  return { MAX_POINTS: 4, MIN_DT: 12, MAX_DT: 120, SPEEDUP: 0.95, FIRST_PAUSE: false, KEEP_ZERO_MOVE_PAUSE: false };
+}
 function buildW3CActionsFromTrace(trace){
   // trace: [{x,y,t}] t=ms 相对起点
   const actions = [];
   if (!trace || trace.length === 0) return [{ type:'pointer', id:'finger1', parameters:{ pointerType:'touch' }, actions: [] }];
-
-  // 调优参数：降低点数与时长，加速执行
-  const MAX_POINTS = 24;     // 采样到不超过 24 个点（包含首尾）
-  const MIN_DT = 6;          // 每段最小持续时间（ms）
-  const MAX_DT = 120;        // 每段最大持续时间（ms）
-  const SPEEDUP = 0.65;      // 对每段 duration 乘以加速系数（0.65 更干脆）
-  const FIRST_PAUSE = false; // 是否在按下后补首段 pause
-  const KEEP_ZERO_MOVE_PAUSE = false; // 无位移时是否保留 pause
+  
+  // 根据预设调优参数
+  const preset = getW3CTunePreset();
+  const MAX_POINTS = preset.MAX_POINTS;
+  const MIN_DT = preset.MIN_DT;
+  const MAX_DT = preset.MAX_DT;
+  const SPEEDUP = preset.SPEEDUP;
+  const FIRST_PAUSE = !!preset.FIRST_PAUSE;
+  const KEEP_ZERO_MOVE_PAUSE = !!preset.KEEP_ZERO_MOVE_PAUSE;
 
   // 下采样：均匀抽样，确保包含最后一个点
   const pts = [];
@@ -274,6 +194,41 @@ function buildW3CActionsFromTrace(trace){
       seq.push({ type:'pointerMove', duration: dt, origin: 'pointer', x: dx, y: dy });
     }
   }
+
+  // 对过长的移动段做均分规整，使每段更接近 ~48ms（所有 W3C 滚动均生效）
+  try {
+    const TARGET_DT = 48; // 目标分段时长（近似样例的 46–47ms）
+    const MAX_PARTS = 3;
+    const newSeq = [];
+    for (const a of seq) {
+      if (a && a.type === 'pointerMove' && a.origin === 'pointer' && isFinite(a.duration) && a.duration > 0) {
+        const dt = Math.max(1, Math.round(a.duration));
+        // 计算建议分段数，限制在 1..MAX_PARTS
+        let n = Math.round(dt / TARGET_DT);
+        if (!isFinite(n) || n < 1) n = 1; else if (n > MAX_PARTS) n = MAX_PARTS;
+        if (n === 1) { newSeq.push(a); continue; }
+        // 按 n 段等分 duration，并用“前段+1”的方式分配余数
+        const base = Math.floor(dt / n);
+        let rem = dt - base * n; // 0..n-1
+        // 等比分配相对位移，保证整段位移总和不变
+        const DX = Number(a.x||0), DY = Number(a.y||0);
+        for (let i=0;i<n;i++){
+          const dPart = base + (rem > 0 ? 1 : 0); if (rem > 0) rem--;
+          // 均匀切分 dx/dy，使用累计四舍五入差值确保整和
+          const x1 = Math.round(DX * (i+1) / n);
+          const x0 = Math.round(DX * (i) / n);
+          const y1 = Math.round(DY * (i+1) / n);
+          const y0 = Math.round(DY * (i) / n);
+          const dx = x1 - x0; const dy = y1 - y0;
+          newSeq.push({ type:'pointerMove', duration: dPart, origin:'pointer', x: dx, y: dy });
+        }
+      } else {
+        newSeq.push(a);
+      }
+    }
+    // 用规整后的序列替换
+    seq.length = 0; Array.prototype.push.apply(seq, newSeq);
+  } catch(_e) { /* 忽略规整异常，使用原序列 */ }
 
   // 抬起
   seq.push({ type:'pointerUp', button: 0 });
