@@ -28,6 +28,7 @@
     <button class="btn" id="btn-vol-down">Vol −</button>
     <button class="btn" id="btn-reload">重载</button>
     <button class="btn" id="btn-appium">Appium 设置</button>
+    <button class="btn" id="btn-devices">设备列表</button>
   </div>
 
   <button id="gest-toggle">手势日志</button>
@@ -121,6 +122,16 @@
       <button class="btn" id="ap-close">关闭</button>
     </div>
     <div class="row" style="font-size:12px;opacity:.8">提示：需使用 Appium 的会话 ID；若有 base 变更，请在此填写。</div>
+  </div>
+
+  <div id="device-panel">
+    <div class="head">
+      <h4>可用设备</h4>
+      <button class="btn" id="device-close">关闭</button>
+    </div>
+    <div class="body" id="device-body">
+      <div class="empty" id="device-empty">正在获取设备列表…</div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js" defer></script>

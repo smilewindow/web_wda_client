@@ -258,7 +258,7 @@ document.getElementById('btn-reload').onclick = () => {
   fetchDeviceInfo();
 };
 
-// Appium 设置面板
+// Appium 设置面板与设备面板
 const panel = document.getElementById('appium-panel');
 const apBase = document.getElementById('ap-base');
 const apSid = document.getElementById('ap-sid');
@@ -269,6 +269,9 @@ const apUdid = document.getElementById('ap-udid');
 const apScaleVal = document.getElementById('ap-scale-val');
 const apFpsVal = document.getElementById('ap-fps-val');
 const apQualityVal = document.getElementById('ap-quality-val');
+const devicePanel = document.getElementById('device-panel');
+const deviceBody = document.getElementById('device-body');
+const deviceEmpty = document.getElementById('device-empty');
 
 function loadAppiumPrefs() {
   apBase.value = LS.getItem('ap.base') || 'http://127.0.0.1:4723';
@@ -305,6 +308,18 @@ document.getElementById('btn-appium').onclick = () => {
   panel.style.display = 'block';
 };
 document.getElementById('ap-close').onclick = () => panel.style.display = 'none';
+try {
+  const btnDevices = document.getElementById('btn-devices');
+  if (btnDevices && devicePanel) {
+    btnDevices.onclick = () => {
+      const showing = devicePanel.style.display === 'flex';
+      devicePanel.style.display = showing ? 'none' : 'flex';
+      if (!showing) refreshDiscoveryDevices();
+    };
+  }
+  const btnDeviceClose = document.getElementById('device-close');
+  if (btnDeviceClose) btnDeviceClose.onclick = () => { if (devicePanel) devicePanel.style.display = 'none'; };
+} catch(_e){}
 // 手势通道固定为 Appium，无需下拉与存储
 document.getElementById('ap-apply').onclick = async () => {
   const base = apBase.value.trim();
@@ -463,6 +478,71 @@ document.getElementById('ap-create').onclick = async () => {
     }
   } catch (err) { toast('创建失败: ' + err, 'err'); }
 };
+
+async function refreshDiscoveryDevices(){
+  if (!devicePanel || !deviceBody) return;
+  if (deviceEmpty) {
+    deviceEmpty.textContent = '正在获取设备列表…';
+    deviceEmpty.style.display = 'block';
+  }
+  deviceBody.querySelectorAll('.device-card').forEach(el => el.remove());
+  try {
+    const r = await fetch(API + '/api/discovery/devices');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const devices = Array.isArray(j.devices) ? j.devices : [];
+    if (!devices.length) {
+      if (deviceEmpty) {
+        deviceEmpty.textContent = '未检测到已连接的设备，请确认已信任并开启开发者模式。';
+        deviceEmpty.style.display = 'block';
+      }
+      return;
+    }
+    if (deviceEmpty) deviceEmpty.style.display = 'none';
+    for (const d of devices) {
+      const card = document.createElement('div');
+      card.className = 'device-card';
+      const title = document.createElement('h5');
+      title.textContent = `${d.name || '未知设备'} (${d.udid || '无 UDID'})`;
+      const info = document.createElement('div');
+      info.className = 'kv';
+      info.textContent = `系统: ${d.osVersion || '-'} | 型号: ${d.model || '-'} | 连接: ${d.connection || '未知'}`;
+      const actions = document.createElement('div');
+      actions.className = 'device-actions';
+      const btnUse = document.createElement('button');
+      btnUse.className = 'btn';
+      btnUse.textContent = '填充并创建';
+      btnUse.onclick = () => {
+        if (apUdid) apUdid.value = d.udid || '';
+        LS.setItem('ap.udid', d.udid || '');
+        if (apSid) apSid.value = '';
+        LS.setItem('ap.sid', '');
+        panel.style.display = 'block';
+        toast('已填充 UDID，请确认 Appium Base 后创建会话。', 'ok');
+      };
+      const btnFill = document.createElement('button');
+      btnFill.className = 'btn';
+      btnFill.textContent = '仅填入 UDID';
+      btnFill.onclick = () => {
+        if (apUdid) apUdid.value = d.udid || '';
+        LS.setItem('ap.udid', d.udid || '');
+        toast('已填入 UDID。', 'ok');
+      };
+      actions.appendChild(btnUse);
+      actions.appendChild(btnFill);
+      card.appendChild(title);
+      card.appendChild(info);
+      card.appendChild(actions);
+      deviceBody.appendChild(card);
+    }
+  } catch(err) {
+    try { console.error('[discovery] devices failed', err); } catch(_e){}
+    if (deviceEmpty) {
+      deviceEmpty.textContent = '获取设备列表失败：' + err;
+      deviceEmpty.style.display = 'block';
+    }
+  }
+}
 
 document.getElementById('ap-load').onclick = async () => {
   const base = apBase.value.trim();

@@ -41,6 +41,15 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-appl
 #gest-panel .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 #gest-panel .g-sec-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 
+#device-panel{position:fixed;right:12px;bottom:12px;width:min(360px,92vw);max-height:70vh;display:none;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;z-index:9998;gap:10px}
+#device-panel .head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#device-panel .body{display:flex;flex-direction:column;gap:10px;overflow:auto}
+#device-panel .empty{font-size:12px;opacity:.8;padding:6px 4px}
+#device-panel .device-card{border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;background:#101014}
+#device-panel .device-card h5{margin:0;font-size:14px}
+#device-panel .kv{font-size:12px;opacity:.9}
+#device-panel .device-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+
 /* Gesture status panel (sample-like) */
 .g-kv{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;padding:6px}
 .g-pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#10233a;border:1px solid #20314b;color:#9fb5d8;font-size:12px}
