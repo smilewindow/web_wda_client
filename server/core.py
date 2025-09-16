@@ -9,6 +9,8 @@ import httpx
 WDA_BASE = os.environ.get("WDA_BASE", "http://127.0.0.1:8100").rstrip("/")
 MJPEG_URL = os.environ.get("MJPEG", "").rstrip("/")
 APPIUM_BASE = os.environ.get("APPIUM_BASE", "").rstrip("/")
+_DISCOVERY_BASE_ENV = os.environ.get("DEVICE_DISCOVERY_BASE") or os.environ.get("DISCOVERY_BASE") or "http://127.0.0.1:3030"
+DISCOVERY_BASE = _DISCOVERY_BASE_ENV.rstrip("/") if _DISCOVERY_BASE_ENV else ""
 
 # Track last created Appium session per base
 APPIUM_LATEST: Dict[str, str] = {}

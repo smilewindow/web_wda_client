@@ -9,6 +9,7 @@ import core
 from routes.appium_proxy import router as appium_router
 from routes.stream import router as stream_router
 from routes.misc import router as misc_router
+from routes.discovery_proxy import router as discovery_router
 
 
 app = FastAPI(title="WDA-Web Console", version="1.0")
@@ -137,6 +138,7 @@ async def access_log(request: Request, call_next):
 app.include_router(appium_router)
 app.include_router(stream_router)
 app.include_router(misc_router)
+app.include_router(discovery_router)
 
 # 最后添加 CORS，使其成为最外层中间件
 app.add_middleware(
