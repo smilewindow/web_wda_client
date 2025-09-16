@@ -117,6 +117,8 @@ async def api_appium_create(payload: Dict[str, Any]):
         "appium:udid": udid,
         "appium:wdaLocalPort": wda_port,
         "appium:mjpegServerPort": mjpeg_port,
+        # "appium:usePreinstalledWDA": True,
+        # "appium:updatedWDABundleId": "net.xuyuqin.WebDriverAgentRunner",
         # "appium:webDriverAgentUrl": "http://127.0.0.1:8100",
         # "appium:mjpegScreenshotUrl": "http://127.0.0.1:9100",
         # "appium:usePrebuiltWDA": True,
@@ -136,28 +138,28 @@ async def api_appium_create(payload: Dict[str, Any]):
     # 后端统一追加的优化型能力（不再由前端传入 extraCaps）
     try:
         settings = {
-            "mjpegFixOrientation": False,                 
+            "mjpegFixOrientation": False,
             "boundElementsByIndex": True,
             "mjpegServerFramerate": 24,
             "maxTypingFrequency": 60,
-            "reduceMotion": False,                        
+            "reduceMotion": False,
             "respectSystemAlerts": False,
-            "elementResponseAttributes": "type,label",   
+            "elementResponseAttributes": "type,label",
             "mjpegScalingFactor": 100,
             "screenshotOrientation": "auto",
-            "keyboardPrediction": 0,                      
-            "defaultActiveApplication": "auto",           
+            "keyboardPrediction": 0,
+            "defaultActiveApplication": "auto",
             "mjpegServerScreenshotQuality": 25,
             "limitXPathContextScope": True,
             "autoClickAlertSelector": "",
-            "keyboardAutocorrection": 0,                  
+            "keyboardAutocorrection": 0,
             "useFirstMatch": True,
             "defaultAlertAction": "",
             "shouldUseCompactResponses": True,
             "dismissAlertButtonSelector": "",
-            "activeAppDetectionPoint": "64.00,64.00",     
+            "activeAppDetectionPoint": "64.00,64.00",
             "useClearTextShortcut": True,
-            "snapshotMaxDepth": 0,                        
+            "snapshotMaxDepth": 0,
             "waitForIdleTimeout": 0,
             "includeNonModalElements": False,
             "acceptAlertButtonSelector": "",
@@ -170,6 +172,20 @@ async def api_appium_create(payload: Dict[str, Any]):
         for k, v in settings.items():
             extraCaps[f"appium:settings[{k}]"] = v
         caps.update(extraCaps)
+  #       const settings = {
+  #   // 截止每次“自定义快照”的最长期限（秒）——越小越快
+  #   customSnapshotTimeout: 10,
+  #   // 动画冷却时间（秒），优化操作响应（优化时统一设置）
+  #   animationCoolOffTimeout: 0,
+  #   // 限制可访问性树的遍历深度，明显缩短“请求快照”时间
+  #   snapshotMaxDepth: 20,
+  #   // 单元素查找走 firstMatch 快路径（若你还会用到元素定位）
+  #   useFirstMatch: true,
+  #   // 打开 iOS 的“降低动态效果”（减少系统层动画）
+  #   reduceMotion: true,
+  #   // 如果是分屏/浮窗导致“当前活跃 App”判断反复，可把命中点移到内容区
+  #   // activeAppDetectionPoint: "200,200"
+  # };
     except Exception:
         pass
     if bundle_id:

@@ -41,6 +41,11 @@
       <!-- 已移除：甩动力度（固定内部策略，无需面板配置） -->
       <!-- 已移除：滚动方案选择；前端固定使用 W3C Actions（轨迹回放）方案 -->
       <div class="row">
+        <label for="view-zoom" class="muted" style="min-width:72px">画面缩放%</label>
+        <input type="range" min="50" max="200" step="5" id="view-zoom"/>
+        <span class="val" id="view-zoom-val"></span>
+      </div>
+      <div class="row">
         <label for="gest-w3c-tune" class="muted">滚动调优（W3C）</label>
         <select id="gest-w3c-tune" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
           <option value="A">方案A（更猛·稳健）</option>
@@ -73,11 +78,6 @@
       <input type="text" id="webrtc-url" placeholder="http://127.0.0.1:8889/iphone1"/>
       <label style="font-size:12px;opacity:.85"><input type="checkbox" id="webrtc-opts" checked /> 自动追加参数</label>
       <button class="btn" id="stream-apply">应用流源</button>
-    </div>
-    <div class="row">
-      <label style="width:74px">缩放%</label>
-      <input type="range" min="50" max="200" step="5" id="view-zoom"/>
-      <span class="val" id="view-zoom-val"></span>
     </div>
     <hr style="border:none;border-top:1px solid var(--line);opacity:.6;margin:8px 0"/>
     <h4 style="margin-top:0">Appium MJPEG 设置</h4>

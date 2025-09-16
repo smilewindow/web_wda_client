@@ -7,7 +7,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-appl
 /* 让画面自适应窗口，高度受限避免被遮挡（HUD/工具栏预留约 160px） */
 :root{ --view-max-w:99vw; --view-max-h:calc(100vh - 96px); --zoom:1; }
 #stream{display:block;max-width:calc(var(--view-max-w) * var(--zoom));max-height:calc(var(--view-max-h) * var(--zoom));width:auto;height:auto;background:#000}
-#webrtc{display:none;width:calc(var(--view-max-w) * var(--zoom));height:calc(var(--view-max-h) * var(--zoom));max-width:calc(var(--view-max-w) * var(--zoom));max-height:calc(var(--view-max-h) * var(--zoom));background:#000;border:0}
+#webrtc{display:none;max-width:var(--view-max-w);max-height:var(--view-max-h);width:var(--view-max-w);height:var(--view-max-h);transform:scale(var(--zoom));transform-origin:center center;background:#000;border:0}
 #overlay{position:absolute;left:0;top:0;pointer-events:auto;touch-action:none}
 .cursor{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(77,163,255,.25);pointer-events:none;opacity:.9;transform:translate(-9999px,-9999px)}
 #hud{position:fixed;left:12px;top:12px;background:rgba(22,22,26,.75);backdrop-filter:saturate(1.2) blur(6px);border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:flex;gap:10px;align-items:center}
@@ -32,6 +32,8 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-appl
 #gest-panel header{display:flex;flex-direction:column;gap:8px;align-items:stretch;padding:8px 10px;border-bottom:1px solid var(--line)}
 #gest-panel header .row{width:100%}
 #gest-panel header select{max-width:100%}
+#gest-panel header input[type="range"]{flex:1 1 auto}
+#gest-panel .val{width:36px;text-align:right;opacity:.8}
 #gest-panel header #gest-close{align-self:flex-end}
 #gest-panel header input[type="number"]{width:88px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)}
 #gest-panel .body{padding:6px 8px;display:flex;flex-direction:column;gap:8px}

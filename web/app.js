@@ -233,7 +233,7 @@ function toDevicePt(clientX, clientY) {
   return { x: xOnImg * scaleX, y: yOnImg * scaleY, rect };
 }
 
-// 简单的指示点（CSS cursor）
+// 简单的指示点（CSS cursor），随缩放调整半径
 function drawDot(x, y) {
   cursorEl.style.transform = `translate(${Math.round(x - 5)}px, ${Math.round(y - 5)}px)`;
 }
@@ -245,6 +245,10 @@ document.getElementById('btn-vol-up').onclick = () => { void mobileExec('mobile:
 document.getElementById('btn-vol-down').onclick = () => { void mobileExec('mobile: pressButton', { name: 'volumeDown' }, '音量-'); };
 let streamToastShown = false;
 document.getElementById('btn-reload').onclick = () => {
+  if (!hasAppiumSession()) {
+    toast('请先在“Appium 设置”中配置 Base 与 Session 后再重载画面。', 'err');
+    return;
+  }
   // 重新加载当前流并刷新设备尺寸
   if (getStreamMode()==='webrtc') {
     try { webrtc.src = getWebRTCUrl() + '#' + Math.random(); } catch(_e){}
@@ -327,8 +331,10 @@ document.getElementById('ap-apply').onclick = async () => {
     } else {
       toast('已应用设置', 'ok');
       streamToastShown = false;
-      reloadCurrentStream();
-      fetchDeviceInfo();
+      if (hasAppiumSession()) {
+        applyStreamMode();
+        fetchDeviceInfo();
+      }
       panel.style.display = 'none';
     }
   } catch (err) {
@@ -343,6 +349,10 @@ if (vzInput) vzInput.oninput = () => { const n = Number(vzInput.value||'100'); s
 // 应用流源
 const btnStreamApply = document.getElementById('stream-apply');
 if (btnStreamApply) btnStreamApply.onclick = () => {
+  if (!hasAppiumSession()) {
+    toast('请先配置 Appium Base 与 Session 后再应用流源。', 'err');
+    return;
+  }
   const modeSel = document.getElementById('stream-mode');
   const ipUrl = document.getElementById('webrtc-url');
   const cbOpts = document.getElementById('webrtc-opts');
@@ -361,6 +371,11 @@ function applyStreamMode(){
   const mode = getStreamMode();
   // 切换流源时先标记未就绪，恢复默认光标
   streamReady = false; updateCursor();
+  if (!hasAppiumSession()) {
+    img.style.display = 'none';
+    webrtc.style.display = 'none';
+    return;
+  }
   if (mode === 'webrtc'){
     // 显示 webrtc，隐藏 mjpeg
     webrtc.style.display = 'block';
@@ -381,6 +396,7 @@ function applyStreamMode(){
 function reloadCurrentStream(){
   // 重新加载时标记未就绪
   streamReady = false; updateCursor();
+  if (!hasAppiumSession()) return;
   if (getStreamMode() === 'webrtc') {
     let u = getWebRTCUrl();
     if (isUseRecommended()) u = withRecommendedParams(u);
@@ -506,9 +522,20 @@ document.getElementById('ap-optimize').onclick = async () => {
   } catch (err) { toast('网络错误: ' + err, 'err'); }
 };
 
+// 检查是否已有可用会话（用于初始化 gating）
+function hasAppiumSession(){
+  const base = (LS.getItem('ap.base')||'').trim();
+  const sid = (LS.getItem('ap.sid')||'').trim();
+  return !!(base && sid);
+}
+
 // 初始加载
-// 初始加载：根据模式选择流源
-applyStreamMode();
+if (hasAppiumSession()) {
+  applyStreamMode();
+  fetchDeviceInfo();
+} else {
+  streamReady = false; updateCursor();
+}
 img.onload = () => { streamReady = true; updateCursor(); resizeOverlay(); };
 try { webrtc.onload = () => { streamReady = true; updateCursor(); resizeOverlay(); }; } catch(_e){}
 img.onerror = () => { console.warn('[stream] failed to load:', img.src); streamReady = false; updateCursor(); if (!streamToastShown) { toast('画面流连接失败：请检查 MJPEG 是否可用（环境变量 MJPEG 需指向有效流，常见为 9100）。', 'err'); streamToastShown = true; } };
@@ -530,4 +557,3 @@ window.addEventListener('load', () => {
 setupGestureRecognizer();
 // 确保即使流未就绪/设备信息获取失败，也有可点击区域
 try { resizeOverlay(); } catch(_e) {}
-fetchDeviceInfo();
