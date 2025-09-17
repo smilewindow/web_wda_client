@@ -246,7 +246,7 @@ document.getElementById('btn-vol-down').onclick = () => { void mobileExec('mobil
 let streamToastShown = false;
 document.getElementById('btn-reload').onclick = () => {
   if (!hasAppiumSession()) {
-    toast('请先在“Appium 设置”中配置 Base 与 Session 后再重载画面。', 'err');
+    toast('请先在“Appium 设置”中获取或创建会话后再重载画面。', 'err');
     return;
   }
   // 重新加载当前流并刷新设备尺寸
@@ -260,12 +260,12 @@ document.getElementById('btn-reload').onclick = () => {
 
 // Appium 设置面板与设备面板
 const panel = document.getElementById('appium-panel');
-const apBase = document.getElementById('ap-base');
-const apSid = document.getElementById('ap-sid');
+const AP_BASE = 'http://127.0.0.1:4723';
+LS.setItem('ap.base', AP_BASE);
+let apSessionId = String(LS.getItem('ap.sid') || '').trim();
 const apScale = document.getElementById('ap-scale');
 const apFps = document.getElementById('ap-fps');
 const apQuality = document.getElementById('ap-quality');
-const apUdid = document.getElementById('ap-udid');
 const apScaleVal = document.getElementById('ap-scale-val');
 const apFpsVal = document.getElementById('ap-fps-val');
 const apQualityVal = document.getElementById('ap-quality-val');
@@ -273,13 +273,20 @@ const devicePanel = document.getElementById('device-panel');
 const deviceBody = document.getElementById('device-body');
 const deviceEmpty = document.getElementById('device-empty');
 
+function setSessionId(value) {
+  apSessionId = String(value || '').trim();
+  if (apSessionId) {
+    LS.setItem('ap.sid', apSessionId);
+  } else {
+    try { LS.removeItem('ap.sid'); } catch(_e) { LS.setItem('ap.sid', ''); }
+  }
+}
+try { window.__setAppSessionId = setSessionId; } catch(_e) {}
+
 function loadAppiumPrefs() {
-  apBase.value = LS.getItem('ap.base') || 'http://127.0.0.1:4723';
-  apSid.value = LS.getItem('ap.sid') || '';
-  apScale.value = LS.getItem('ap.scale') || 60;
-  apFps.value = LS.getItem('ap.fps') || 30;
-  apQuality.value = LS.getItem('ap.quality') || 15;
-  apUdid.value = LS.getItem('ap.udid') || '';
+  apScale.value = String(LS.getItem('ap.scale') || 60);
+  apFps.value = String(LS.getItem('ap.fps') || 30);
+  apQuality.value = String(LS.getItem('ap.quality') || 15);
   apScaleVal.textContent = apScale.value;
   apFpsVal.textContent = apFps.value;
   apQualityVal.textContent = apQuality.value;
@@ -322,16 +329,17 @@ try {
 } catch(_e){}
 // 手势通道固定为 Appium，无需下拉与存储
 document.getElementById('ap-apply').onclick = async () => {
-  const base = apBase.value.trim();
-  const sid = apSid.value.trim();
+  const base = AP_BASE;
+  const sid = apSessionId.trim();
+  if (!sid) {
+    toast('请先获取或创建 Appium 会话', 'err');
+    return;
+  }
   const settings = {
     mjpegScalingFactor: Number(apScale.value),
     mjpegServerFramerate: Number(apFps.value),
     mjpegServerScreenshotQuality: Number(apQuality.value),
   };
-  LS.setItem('ap.base', base);
-  LS.setItem('ap.sid', sid);
-  LS.setItem('ap.udid', apUdid.value.trim());
   LS.setItem('ap.scale', String(settings.mjpegScalingFactor));
   LS.setItem('ap.fps', String(settings.mjpegServerFramerate));
   LS.setItem('ap.quality', String(settings.mjpegServerScreenshotQuality));
@@ -365,7 +373,7 @@ if (vzInput) vzInput.oninput = () => { const n = Number(vzInput.value||'100'); s
 const btnStreamApply = document.getElementById('stream-apply');
 if (btnStreamApply) btnStreamApply.onclick = () => {
   if (!hasAppiumSession()) {
-    toast('请先配置 Appium Base 与 Session 后再应用流源。', 'err');
+    toast('请先获取或创建 Appium 会话后再应用流源。', 'err');
     return;
   }
   const modeSel = document.getElementById('stream-mode');
@@ -421,42 +429,13 @@ function reloadCurrentStream(){
   }
 }
 
-document.getElementById('ap-fetch').onclick = async () => {
-  const base = apBase.value.trim();
-  if (!base) { alert('请先填写 Appium Base'); return; }
-  try {
-    // 先尝试获取最近一次在本后端创建的会话
-    let r = await fetch(API + '/api/appium/last-session?base=' + encodeURIComponent(base));
-    let j = await r.json();
-    if (j.ok && j.sessionId) {
-      apSid.value = j.sessionId;
-      LS.setItem('ap.sid', apSid.value);
-      toast('已获取会话: ' + apSid.value, 'ok');
-      streamToastShown = false;
-      reloadCurrentStream();
-      fetchDeviceInfo();
-      return;
-    }
-    // 回退尝试 /sessions（部分 Appium v2 不支持，可能为空）
-    r = await fetch(API + '/api/appium/sessions?base=' + encodeURIComponent(base));
-    j = await r.json();
-    if (j.sessions && j.sessions.length) {
-      apSid.value = j.sessions[j.sessions.length - 1];
-      LS.setItem('ap.sid', apSid.value);
-      toast('已获取会话: ' + apSid.value, 'ok');
-      streamToastShown = false;
-      reloadCurrentStream();
-      fetchDeviceInfo();
-    } else {
-      toast('未发现会话，请创建', 'err');
-    }
-  } catch (err) { toast('获取失败: ' + err, 'err'); }
-};
-
-document.getElementById('ap-create').onclick = async () => {
-  const base = apBase.value.trim();
-  const udid = apUdid.value.trim();
-  if (!base || !udid) { toast('请填写 Base 与 UDID', 'err'); return; }
+async function createSessionWithUdid(rawUdid) {
+  const base = AP_BASE;
+  const udid = String(rawUdid || '').trim();
+  if (!udid) {
+    toast('该设备缺少 UDID，无法创建会话。', 'err');
+    return;
+  }
   try {
     const r = await fetch(API + '/api/appium/create', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -466,9 +445,8 @@ document.getElementById('ap-create').onclick = async () => {
     });
     const j = await r.json();
     if (r.ok && j.sessionId) {
-      apSid.value = j.sessionId;
-      LS.setItem('ap.sid', apSid.value);
-      LS.setItem('ap.udid', udid);
+      setSessionId(j.sessionId);
+      if (udid) LS.setItem('ap.udid', udid);
       toast('会话已创建: ' + j.sessionId, 'ok');
       streamToastShown = false;
       reloadCurrentStream();
@@ -477,7 +455,7 @@ document.getElementById('ap-create').onclick = async () => {
       toast('创建失败: ' + JSON.stringify(j).slice(0, 400), 'err');
     }
   } catch (err) { toast('创建失败: ' + err, 'err'); }
-};
+}
 
 async function refreshDiscoveryDevices(){
   if (!devicePanel || !deviceBody) return;
@@ -509,27 +487,14 @@ async function refreshDiscoveryDevices(){
       info.textContent = `系统: ${d.osVersion || '-'} | 型号: ${d.model || '-'} | 连接: ${d.connection || '未知'}`;
       const actions = document.createElement('div');
       actions.className = 'device-actions';
-      const btnUse = document.createElement('button');
-      btnUse.className = 'btn';
-      btnUse.textContent = '填充并创建';
-      btnUse.onclick = () => {
-        if (apUdid) apUdid.value = d.udid || '';
-        LS.setItem('ap.udid', d.udid || '');
-        if (apSid) apSid.value = '';
-        LS.setItem('ap.sid', '');
+      const btnCreate = document.createElement('button');
+      btnCreate.className = 'btn';
+      btnCreate.textContent = '创建会话';
+      btnCreate.onclick = async () => {
         panel.style.display = 'block';
-        toast('已填充 UDID，请确认 Appium Base 后创建会话。', 'ok');
+        await createSessionWithUdid(d.udid || '');
       };
-      const btnFill = document.createElement('button');
-      btnFill.className = 'btn';
-      btnFill.textContent = '仅填入 UDID';
-      btnFill.onclick = () => {
-        if (apUdid) apUdid.value = d.udid || '';
-        LS.setItem('ap.udid', d.udid || '');
-        toast('已填入 UDID。', 'ok');
-      };
-      actions.appendChild(btnUse);
-      actions.appendChild(btnFill);
+      actions.appendChild(btnCreate);
       card.appendChild(title);
       card.appendChild(info);
       card.appendChild(actions);
@@ -544,69 +509,9 @@ async function refreshDiscoveryDevices(){
   }
 }
 
-document.getElementById('ap-load').onclick = async () => {
-  const base = apBase.value.trim();
-  const sid = apSid.value.trim();
-  if (!base || !sid) { toast('请填写 Base 与 Session', 'err'); return; }
-  try {
-    const r = await fetch(API + '/api/appium/settings?base=' + encodeURIComponent(base) + '&sessionId=' + encodeURIComponent(sid));
-    const j = await r.json();
-    if (!r.ok) {
-      toast('读取失败: ' + JSON.stringify(j).slice(0, 400), 'err');
-      return;
-    }
-    const val = j.value || j; // 兼容不同返回结构
-    if (typeof val.mjpegScalingFactor === 'number') apScale.value = val.mjpegScalingFactor;
-    if (typeof val.mjpegServerFramerate === 'number') apFps.value = val.mjpegServerFramerate;
-    if (typeof val.mjpegServerScreenshotQuality === 'number') apQuality.value = val.mjpegServerScreenshotQuality;
-    apScaleVal.textContent = apScale.value;
-    apFpsVal.textContent = apFps.value;
-    apQualityVal.textContent = apQuality.value;
-    LS.setItem('ap.scale', apScale.value);
-    LS.setItem('ap.fps', apFps.value);
-    LS.setItem('ap.quality', apQuality.value);
-    toast('已读取当前设置', 'ok');
-  } catch (err) { toast('读取失败: ' + err, 'err'); }
-};
-
-// 一键下发 WDA 优化设置：useFirstMatch / snapshotMaxDepth / activeAppDetectionPoint / reduceMotion
-document.getElementById('ap-optimize').onclick = async () => {
-  const base = apBase.value.trim();
-  const sid = apSid.value.trim();
-  if (!base || !sid) { toast('请填写 Base 与 Session', 'err'); return; }
-  const settings = {
-    // 截止每次“自定义快照”的最长期限（秒）——越小越快
-    customSnapshotTimeout: 10,
-    // 动画冷却时间（秒），优化操作响应（优化时统一设置）
-    animationCoolOffTimeout: 0,
-    // 限制可访问性树的遍历深度，明显缩短“请求快照”时间
-    snapshotMaxDepth: 20,
-    // 单元素查找走 firstMatch 快路径（若你还会用到元素定位）
-    useFirstMatch: true,
-    // 打开 iOS 的“降低动态效果”（减少系统层动画）
-    reduceMotion: true,
-    // 如果是分屏/浮窗导致“当前活跃 App”判断反复，可把命中点移到内容区
-    // activeAppDetectionPoint: "200,200"
-  };
-  try {
-    const r = await fetch(API + '/api/appium/settings', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base, sessionId: sid, settings })
-    });
-    if (!r.ok) {
-      const t = await r.text();
-      toast('WDA 优化失败: ' + t.slice(0, 400), 'err');
-    } else {
-      toast('WDA 优化已下发', 'ok');
-    }
-  } catch (err) { toast('网络错误: ' + err, 'err'); }
-};
-
 // 检查是否已有可用会话（用于初始化 gating）
 function hasAppiumSession(){
-  const base = (LS.getItem('ap.base')||'').trim();
-  const sid = (LS.getItem('ap.sid')||'').trim();
-  return !!(base && sid);
+  return apSessionId.trim().length > 0;
 }
 
 // 初始加载
@@ -627,13 +532,6 @@ canvas.addEventListener('pointermove', (e) => {
 });
 // 禁用默认长按弹出菜单，避免干扰长按定时器
 try { canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); }); } catch (_e) {}
-window.addEventListener('load', () => {
-  const base0 = LS.getItem('ap.base') || '';
-  const sid0 = LS.getItem('ap.sid') || '';
-  if (base0 && sid0) {
-    apBase.value = base0; apSid.value = sid0;
-  }
-});
 setupGestureRecognizer();
 // 确保即使流未就绪/设备信息获取失败，也有可点击区域
 try { resizeOverlay(); } catch(_e) {}

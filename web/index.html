@@ -83,18 +83,6 @@
     <hr style="border:none;border-top:1px solid var(--line);opacity:.6;margin:8px 0"/>
     <h4 style="margin-top:0">Appium MJPEG 设置</h4>
     <div class="row">
-      <label style="width:74px">Base</label>
-      <input type="text" id="ap-base" placeholder="http://127.0.0.1:4723"/>
-    </div>
-    <div class="row">
-      <label style="width:74px">Session</label>
-      <input type="text" id="ap-sid" placeholder="<Appium SessionId>"/>
-    </div>
-    <div class="row">
-      <label style="width:74px">UDID</label>
-      <input type="text" id="ap-udid" placeholder="<Device UDID for create>"/>
-    </div>
-    <div class="row">
       <label style="width:74px">缩放%</label>
       <input type="range" min="30" max="100" step="1" id="ap-scale"/>
       <span class="val" id="ap-scale-val"></span>
@@ -114,14 +102,10 @@
     <!-- 保活设置移除，默认总是保活（见脚本） -->
 
     <div class="row" style="justify-content:flex-end;gap:10px;flex-wrap:wrap">
-      <button class="btn" id="ap-fetch">获取会话</button>
-      <button class="btn" id="ap-create">创建会话</button>
-      <button class="btn" id="ap-load">读取设置</button>
-      <button class="btn" id="ap-optimize">WDA 优化</button>
       <button class="btn" id="ap-apply">应用</button>
       <button class="btn" id="ap-close">关闭</button>
     </div>
-    <div class="row" style="font-size:12px;opacity:.8">提示：需使用 Appium 的会话 ID；若有 base 变更，请在此填写。</div>
+    <div class="row" style="font-size:12px;opacity:.8">提示：Base 固定为 http://127.0.0.1:4723；请通过设备面板选择设备创建会话，或在后端预先提供可用会话。</div>
   </div>
 
   <div id="device-panel">

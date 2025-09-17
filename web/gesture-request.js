@@ -39,6 +39,7 @@ async function safeFetch(url, opts, actionLabel){
               const newSid = (j2 && j2.sessionId) ? String(j2.sessionId) : '';
               if (newSid) {
                 LS.setItem('ap.sid', newSid);
+                try { if (typeof window.__setAppSessionId === 'function') window.__setAppSessionId(newSid); } catch(_e){}
                 try { const ip = document.getElementById('ap-sid'); if (ip) ip.value = newSid; } catch(_e){}
                 try { toast('已自动重建会话，正在重试操作…', 'ok'); } catch(_e){}
                 // 用新 sid 重试一次原请求
@@ -75,6 +76,7 @@ async function safeFetch(url, opts, actionLabel){
         const newSid = js && js.recreated === true && typeof js.sessionId === 'string' ? js.sessionId.trim() : '';
         if (newSid) {
           LS.setItem('ap.sid', newSid);
+          try { if (typeof window.__setAppSessionId === 'function') window.__setAppSessionId(newSid); } catch(_e){}
           try { const ip = document.getElementById('ap-sid'); if (ip) ip.value = newSid; } catch(_e){}
           try { toast('会话已自动重建，SessionId 已更新', 'ok'); } catch(_e){}
         }
