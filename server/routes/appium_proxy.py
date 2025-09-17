@@ -6,6 +6,7 @@ from fastapi.encoders import jsonable_encoder
 import core
 import appium_driver as ad
 import httpx
+import stream_pusher
 
 router = APIRouter()
 
@@ -195,6 +196,14 @@ async def api_appium_create(payload: Dict[str, Any]):
     try:
         core.logger.info(caps)
         sid, _driver = await ad.create_session(base, capabilities=caps)
+        push_error = await stream_pusher.start_stream(udid, sid, base, mjpeg_port)
+        if push_error:
+            core.logger.error(
+                "Failed to start stream push for udid=%s sid=%s: %s",
+                udid,
+                sid,
+                push_error,
+            )
         # 为避免序列化问题，这里不返回 capabilities（某些实现包含不可 JSON 化对象）
         return {"sessionId": sid, "capabilities": None}
     except Exception as e:

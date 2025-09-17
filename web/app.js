@@ -7,11 +7,10 @@ function hostWithBracket(host) {
   return (host.includes(':') && !host.startsWith('[')) ? `[${host}]` : host;
 }
 const API = getParam('api') || `${location.protocol}//${hostWithBracket(location.hostname)}:7070`;
-const HUD_API = document.querySelector('#hud-api code');
-HUD_API.textContent = API;
 
 const img = document.getElementById('stream');
 const webrtc = document.getElementById('webrtc');
+const phone = document.getElementById('phone');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
 
@@ -35,27 +34,21 @@ function updateCursor(){
 // 设备尺寸（pt 与 px），用于坐标映射
 let devicePt = { w: null, h: null };
 let devicePx = { w: null, h: null };
+let deviceInfoLoading = false;
+let discoveryLoading = false;
+let lastDeviceInfoFetch = 0;
+let lastDiscoveryFetch = 0;
+const FETCH_COOLDOWN_MS = 1200;
 
 // 流源管理（本地偏好）
-function getDefaultWebRTCUrl(){ return 'http://127.0.0.1:8889/iphone1'; }
+const DEFAULT_WEBRTC_BASE = 'http://82.157.94.134:8889/iphone';
+const WEBRTC_QUERY_SUFFIX = 'controls=false&muted=true&autoplay=true&playsinline=true';
 function getStreamMode(){ const m = String(LS.getItem('stream.mode')||'mjpeg'); return (m==='webrtc'?'webrtc':'mjpeg'); }
 function setStreamMode(m){ LS.setItem('stream.mode', (m==='webrtc')?'webrtc':'mjpeg'); }
-function getWebRTCUrl(){ return (LS.getItem('webrtc.url')||getDefaultWebRTCUrl()); }
-function setWebRTCUrl(u){ LS.setItem('webrtc.url', String(u||'')); }
-function isUseRecommended(){ return (LS.getItem('webrtc.opts')||'1') === '1'; }
-function setUseRecommended(v){ LS.setItem('webrtc.opts', v ? '1' : '0'); }
-function withRecommendedParams(u){
-  try{
-    const url = new URL(u, location.href);
-    const must = { controls:'false', muted:'true', autoplay:'true', playsinline:'true' };
-    for (const k of Object.keys(must)){
-      if (url.searchParams.get(k) == null) url.searchParams.set(k, must[k]);
-    }
-    return url.toString();
-  }catch(_e){
-    const suffix = 'controls=false&muted=true&autoplay=true&playsinline=true';
-    return u + (u.includes('?') ? '&' : '?') + suffix;
-  }
+function buildWebRTCUrl(udid, sessionId){
+  const base = DEFAULT_WEBRTC_BASE;
+  const url = `${base}/${encodeURIComponent(String(udid||''))}/${encodeURIComponent(String(sessionId||''))}`;
+  return url + (url.includes('?') ? '&' : '?') + WEBRTC_QUERY_SUFFIX;
 }
 function getDisplayEl(){ return getStreamMode()==='webrtc' ? webrtc : img; }
 function getDeviceAspect(){
@@ -100,11 +93,50 @@ function setViewZoomPct(n){ try{ LS.setItem('view.zoom.pct', String(Math.max(50,
 function applyViewZoom(pct){
   try{
     const p = isFinite(pct) ? Math.max(50, Math.min(200, Math.round(pct))) : 100;
-    document.documentElement.style.setProperty('--zoom', String(p/100));
     const vz = document.getElementById('view-zoom-val'); if (vz) vz.textContent = String(p);
-    // 等比缩放会改变渲染尺寸，需同步 overlay
-    resizeOverlay();
+    updateDisplayLayout();
   }catch(_e){}
+}
+
+function computeDisplaySize(){
+  const ratio = Math.max(0.1, getDeviceAspect());
+  const zoom = Math.max(0.5, Math.min(2, getViewZoomPct() / 100));
+  const maxW = Math.max(320, window.innerWidth * 0.99);
+  const maxH = Math.max(280, window.innerHeight - 160);
+  let width = maxW;
+  let height = width / ratio;
+  if (height > maxH) {
+    height = maxH;
+    width = height * ratio;
+  }
+  width *= zoom;
+  height *= zoom;
+  return { width, height };
+}
+
+function updateDisplayLayout(){
+  try {
+    const { width, height } = computeDisplaySize();
+    if (phone) {
+      phone.style.width = `${Math.round(width)}px`;
+      phone.style.height = `${Math.round(height)}px`;
+    }
+    if (img) {
+      img.style.width = '100%';
+      img.style.height = '100%';
+    }
+    if (webrtc) {
+      webrtc.style.width = '100%';
+      webrtc.style.height = '100%';
+    }
+  } catch(_e) {}
+  try {
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => { try { resizeOverlay(); } catch(_e){} });
+    } else {
+      resizeOverlay();
+    }
+  } catch(_e){}
 }
 
 // 轻量通知与包装请求 + 手势调试面板
@@ -175,24 +207,40 @@ function toast(msg, type = 'err', ttl = 3200) {
     setTimeout(() => { try { document.body.removeChild(el); } catch (e) { } }, ttl);
   } catch (_e) { alert(msg); }
 }
+
+function formatErrorDetail(err) {
+  if (!err) return '';
+  if (typeof err === 'string') return err;
+  if (typeof err === 'object') {
+    if (typeof err.message === 'string') return err.message;
+    try { return JSON.stringify(err); } catch (_e) { /* noop */ }
+  }
+  return String(err);
+}
 async function fetchDeviceInfo() {
+  const now = Date.now();
+  if (now - lastDeviceInfoFetch < FETCH_COOLDOWN_MS) return;
+  if (deviceInfoLoading) return;
+  deviceInfoLoading = true;
+  lastDeviceInfoFetch = now;
   try {
-    const r = await fetch(API + '/api/device-info');
-    if (!r.ok) {
-      let t = '';
-      try { t = await r.text(); } catch (_e) { }
-      let msg = '';
-      try { const j = JSON.parse(t); msg = j.error || t; } catch (_e) { msg = t; }
-      const hint = r.status === 503 ? '未检测到 WDA 会话，请在右下角“Appium 设置”创建会话，或启用后端 WDA_AUTO_CREATE=true。' : '获取设备信息失败。';
-      toast(hint + (msg ? `（${msg.slice(0, 200)}）` : ''), 'err');
+    const resp = await WSProxy.send('device.info');
+    if (!resp.ok) {
+      const msg = formatErrorDetail(resp.error);
+      const hint = resp.status === 503 ? '未检测到 WDA 会话，请在右下角“Appium 设置”创建会话，或启用后端 WDA_AUTO_CREATE=true。' : '获取设备信息失败。';
+      toast(hint + (msg ? `（${String(msg).slice(0, 200)}）` : ''), 'err');
       return;
     }
-    const j = await r.json();
+    const j = resp.data || {};
     if (j.size_pt) devicePt = { w: j.size_pt.w, h: j.size_pt.h };
     if (j.size_px) devicePx = { w: j.size_px.w, h: j.size_px.h };
     hudSize.textContent = `pt ${devicePt.w || '-'}×${devicePt.h || '-'} | px ${devicePx.w}×${devicePx.h}`;
-    resizeOverlay();
+    updateDisplayLayout();
   } catch (err) { toast('获取设备信息失败：' + err, 'err'); }
+  finally {
+    deviceInfoLoading = false;
+    lastDeviceInfoFetch = Date.now();
+  }
 }
 
 // 让 overlay 与当前显示流的渲染尺寸吻合
@@ -251,7 +299,11 @@ document.getElementById('btn-reload').onclick = () => {
   }
   // 重新加载当前流并刷新设备尺寸
   if (getStreamMode()==='webrtc') {
-    try { webrtc.src = getWebRTCUrl() + '#' + Math.random(); } catch(_e){}
+    try {
+      const url = buildWebRTCUrl(LS.getItem('ap.udid')||'default', LS.getItem('ap.sid')||'default');
+      webrtc.src = url + '#' + Math.random();
+      console.info('[webrtc] reload stream', webrtc.src);
+    } catch(_e){}
   } else {
     img.src = API + '/stream' + '#' + Math.random();
   }
@@ -293,11 +345,7 @@ function loadAppiumPrefs() {
   // 流源 UI 同步
   try {
     const modeSel = document.getElementById('stream-mode');
-    const ipUrl = document.getElementById('webrtc-url');
-    const cbOpts = document.getElementById('webrtc-opts');
     if (modeSel) modeSel.value = getStreamMode();
-    if (ipUrl) ipUrl.value = getWebRTCUrl();
-    if (cbOpts) cbOpts.checked = isUseRecommended();
     // 视图缩放同步
     const ipZ = document.getElementById('view-zoom');
     if (ipZ) ipZ.value = String(getViewZoomPct());
@@ -305,6 +353,7 @@ function loadAppiumPrefs() {
   } catch(_e){}
 }
 loadAppiumPrefs();
+updateDisplayLayout();
 
 apScale.oninput = () => apScaleVal.textContent = apScale.value;
 apFps.oninput = () => apFpsVal.textContent = apFps.value;
@@ -344,13 +393,10 @@ document.getElementById('ap-apply').onclick = async () => {
   LS.setItem('ap.fps', String(settings.mjpegServerFramerate));
   LS.setItem('ap.quality', String(settings.mjpegServerScreenshotQuality));
   try {
-    const r = await fetch(API + '/api/appium/settings', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base, sessionId: sid, settings })
-    });
-    if (!r.ok) {
-      const t = await r.text();
-      toast('应用失败: ' + t.slice(0, 400), 'err');
+    const resp = await WSProxy.send('appium.settings.apply', { base, sessionId: sid, settings });
+    if (!resp.ok) {
+      const msg = formatErrorDetail(resp.error);
+      toast('应用失败: ' + String(msg || '').slice(0, 400), 'err');
     } else {
       toast('已应用设置', 'ok');
       streamToastShown = false;
@@ -377,16 +423,12 @@ if (btnStreamApply) btnStreamApply.onclick = () => {
     return;
   }
   const modeSel = document.getElementById('stream-mode');
-  const ipUrl = document.getElementById('webrtc-url');
-  const cbOpts = document.getElementById('webrtc-opts');
   const mode = modeSel ? String(modeSel.value||'mjpeg') : 'mjpeg';
-  let url = ipUrl ? String(ipUrl.value||'') : '';
   setStreamMode(mode);
-  const useRec = cbOpts ? !!cbOpts.checked : true;
-  setUseRecommended(useRec);
-  if (useRec && url) url = withRecommendedParams(url);
-  if (url) setWebRTCUrl(url); else setWebRTCUrl(getDefaultWebRTCUrl());
   applyStreamMode();
+  if (mode === 'webrtc') {
+    console.info('[webrtc] applying stream', webrtc.src);
+  }
   toast('流源设置已应用', 'ok');
 };
 
@@ -397,6 +439,7 @@ function applyStreamMode(){
   if (!hasAppiumSession()) {
     img.style.display = 'none';
     webrtc.style.display = 'none';
+    updateDisplayLayout();
     return;
   }
   if (mode === 'webrtc'){
@@ -404,16 +447,15 @@ function applyStreamMode(){
     webrtc.style.display = 'block';
     img.style.display = 'none';
     // 赋值/刷新 URL
-    let u = getWebRTCUrl();
-    if (isUseRecommended()) u = withRecommendedParams(u);
-    if (webrtc.src !== u) webrtc.src = u;
+    const url = buildWebRTCUrl(LS.getItem('ap.udid')||'default', LS.getItem('ap.sid')||'default');
+    if (webrtc.src !== url) webrtc.src = url;
   } else {
     // 显示 mjpeg，隐藏 webrtc
     img.style.display = 'block';
     webrtc.style.display = 'none';
     if (!img.src) img.src = API + '/stream?' + Date.now();
   }
-  resizeOverlay();
+  updateDisplayLayout();
 }
 
 function reloadCurrentStream(){
@@ -421,9 +463,8 @@ function reloadCurrentStream(){
   streamReady = false; updateCursor();
   if (!hasAppiumSession()) return;
   if (getStreamMode() === 'webrtc') {
-    let u = getWebRTCUrl();
-    if (isUseRecommended()) u = withRecommendedParams(u);
-    webrtc.src = u + '#' + Math.random();
+    const url = buildWebRTCUrl(LS.getItem('ap.udid')||'default', LS.getItem('ap.sid')||'default');
+    webrtc.src = url + '#' + Math.random();
   } else {
     img.src = API + '/stream?' + Date.now();
   }
@@ -437,27 +478,36 @@ async function createSessionWithUdid(rawUdid) {
     return;
   }
   try {
-    const r = await fetch(API + '/api/appium/create', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        base, udid, wdaLocalPort: 8100, mjpegServerPort: 9100, bundleId: 'com.apple.Preferences', noReset: true
-      })
+    const resp = await WSProxy.send('appium.session.create', {
+      base,
+      udid,
+      wdaLocalPort: 8100,
+      mjpegServerPort: 9100,
+      bundleId: 'com.apple.Preferences',
+      noReset: true,
     });
-    const j = await r.json();
-    if (r.ok && j.sessionId) {
-      setSessionId(j.sessionId);
+    const data = resp.data || {};
+    if (resp.ok && data.sessionId) {
+      setSessionId(data.sessionId);
       if (udid) LS.setItem('ap.udid', udid);
-      toast('会话已创建: ' + j.sessionId, 'ok');
+      toast('会话已创建: ' + data.sessionId, 'ok');
       streamToastShown = false;
       reloadCurrentStream();
       fetchDeviceInfo();
+      if (devicePanel) devicePanel.style.display = 'none';
     } else {
-      toast('创建失败: ' + JSON.stringify(j).slice(0, 400), 'err');
+      const msg = formatErrorDetail(resp.error);
+      toast('创建失败: ' + String(msg || JSON.stringify(data)).slice(0, 400), 'err');
     }
   } catch (err) { toast('创建失败: ' + err, 'err'); }
 }
 
 async function refreshDiscoveryDevices(){
+  const now = Date.now();
+  if (now - lastDiscoveryFetch < FETCH_COOLDOWN_MS) return;
+  if (discoveryLoading) return;
+  discoveryLoading = true;
+  lastDiscoveryFetch = now;
   if (!devicePanel || !deviceBody) return;
   if (deviceEmpty) {
     deviceEmpty.textContent = '正在获取设备列表…';
@@ -465,9 +515,13 @@ async function refreshDiscoveryDevices(){
   }
   deviceBody.querySelectorAll('.device-card').forEach(el => el.remove());
   try {
-    const r = await fetch(API + '/api/discovery/devices');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const j = await r.json();
+    const resp = await WSProxy.send('discovery.devices.list');
+    if (!resp.ok) {
+      const msg = formatErrorDetail(resp.error);
+      const status = typeof resp.status === 'number' ? resp.status : 'unknown';
+      throw new Error(msg ? String(msg) : 'HTTP ' + status);
+    }
+    const j = resp.data || {};
     const devices = Array.isArray(j.devices) ? j.devices : [];
     if (!devices.length) {
       if (deviceEmpty) {
@@ -506,6 +560,9 @@ async function refreshDiscoveryDevices(){
       deviceEmpty.textContent = '获取设备列表失败：' + err;
       deviceEmpty.style.display = 'block';
     }
+  } finally {
+    discoveryLoading = false;
+    lastDiscoveryFetch = Date.now();
   }
 }
 
@@ -520,11 +577,12 @@ if (hasAppiumSession()) {
   fetchDeviceInfo();
 } else {
   streamReady = false; updateCursor();
+  updateDisplayLayout();
 }
-img.onload = () => { streamReady = true; updateCursor(); resizeOverlay(); };
-try { webrtc.onload = () => { streamReady = true; updateCursor(); resizeOverlay(); }; } catch(_e){}
+img.onload = () => { streamReady = true; updateCursor(); updateDisplayLayout(); };
+try { webrtc.onload = () => { streamReady = true; updateCursor(); updateDisplayLayout(); }; } catch(_e){}
 img.onerror = () => { console.warn('[stream] failed to load:', img.src); streamReady = false; updateCursor(); if (!streamToastShown) { toast('画面流连接失败：请检查 MJPEG 是否可用（环境变量 MJPEG 需指向有效流，常见为 9100）。', 'err'); streamToastShown = true; } };
-window.onresize = () => resizeOverlay();
+window.onresize = () => updateDisplayLayout();
 // 跟随鼠标显示指示点
 canvas.addEventListener('pointermove', (e) => {
   const rect = getDisplayRect();
@@ -534,4 +592,4 @@ canvas.addEventListener('pointermove', (e) => {
 try { canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); }); } catch (_e) {}
 setupGestureRecognizer();
 // 确保即使流未就绪/设备信息获取失败，也有可点击区域
-try { resizeOverlay(); } catch(_e) {}
+try { updateDisplayLayout(); } catch(_e) {}

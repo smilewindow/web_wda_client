@@ -2,15 +2,15 @@
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
-#wrap{display:flex;justify-content:center;align-items:center;min-height:100%}
+#wrap{display:flex;justify-content:center;align-items:flex-start;min-height:100%;overflow:auto;padding:20px 0}
 #phone{position:relative;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45);background:#000}
 /* 让画面自适应窗口，高度受限避免被遮挡（HUD/工具栏预留约 160px） */
-:root{ --view-max-w:99vw; --view-max-h:calc(100vh - 96px); --zoom:1; }
-#stream{display:block;max-width:calc(var(--view-max-w) * var(--zoom));max-height:calc(var(--view-max-h) * var(--zoom));width:auto;height:auto;background:#000}
-#webrtc{display:none;max-width:var(--view-max-w);max-height:var(--view-max-h);width:var(--view-max-w);height:var(--view-max-h);transform:scale(var(--zoom));transform-origin:center center;background:#000;border:0}
+:root{ --view-max-w:99vw; --view-max-h:calc(100vh - 96px); }
+#stream{display:block;width:100%;height:100%;object-fit:contain;background:#000}
+#webrtc{display:none;width:100%;height:100%;background:#000;border:0}
 #overlay{position:absolute;left:0;top:0;pointer-events:auto;touch-action:none}
 .cursor{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(77,163,255,.25);pointer-events:none;opacity:.9;transform:translate(-9999px,-9999px)}
-#hud{position:fixed;left:12px;top:12px;background:rgba(22,22,26,.75);backdrop-filter:saturate(1.2) blur(6px);border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:flex;gap:10px;align-items:center}
+#hud{position:fixed;left:12px;top:12px;background:rgba(22,22,26,.75);backdrop-filter:saturate(1.2) blur(6px);border:1px solid var(--line);border-radius:12px;padding:8px 10px;display:flex;gap:10px;align-items:center;z-index:10001}
 #toolbar{position:fixed;left:12px;bottom:12px;display:flex;gap:8px;flex-wrap:wrap}
 .btn{padding:8px 12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:pointer}
 .btn:active{transform:translateY(1px)}

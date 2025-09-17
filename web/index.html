@@ -8,8 +8,9 @@
 </head>
 <body>
   <div id="hud">
-    <span class="pill" id="hud-api">API: <code class="muted"></code></span>
     <span class="pill" id="hud-size">—</span>
+    <button class="btn" id="btn-appium">Appium 设置</button>
+    <button class="btn" id="btn-devices">设备列表</button>
   </div>
 
   <div id="wrap">
@@ -27,8 +28,6 @@
     <button class="btn" id="btn-vol-up">Vol +</button>
     <button class="btn" id="btn-vol-down">Vol −</button>
     <button class="btn" id="btn-reload">重载</button>
-    <button class="btn" id="btn-appium">Appium 设置</button>
-    <button class="btn" id="btn-devices">设备列表</button>
   </div>
 
   <button id="gest-toggle">手势日志</button>
@@ -74,10 +73,7 @@
         <option value="webrtc">WebRTC（自建推流）</option>
       </select>
     </div>
-    <div class="row">
-      <label style="width:74px">WebRTC</label>
-      <input type="text" id="webrtc-url" placeholder="http://127.0.0.1:8889/iphone1"/>
-      <label style="font-size:12px;opacity:.85"><input type="checkbox" id="webrtc-opts" checked /> 自动追加参数</label>
+    <div class="row" style="justify-content:flex-start;gap:10px;flex-wrap:wrap">
       <button class="btn" id="stream-apply">应用流源</button>
     </div>
     <hr style="border:none;border-top:1px solid var(--line);opacity:.6;margin:8px 0"/>
@@ -119,6 +115,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js" defer></script>
+  <script src="ws-client.js" defer></script>
   <script src="gesture-request.js" defer></script>
   <script src="gesture-recognizer.js" defer></script>
   <script src="app.js" defer></script>

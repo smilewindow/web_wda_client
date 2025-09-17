@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 
 import core
+import ws_proxy_client
+import stream_pusher
 from routes.appium_proxy import router as appium_router
 from routes.stream import router as stream_router
 from routes.misc import router as misc_router
@@ -17,6 +19,13 @@ app = FastAPI(title="WDA-Web Console", version="1.0")
 
 # 由 CORSMiddleware 处理预检；无需手动声明 OPTIONS 路由
 
+@app.on_event("startup")
+async def _startup_ws_proxy():
+    try:
+        await ws_proxy_client.start()
+    except Exception:
+        core.logger.exception("Failed to start WS proxy client")
+
 
 @app.on_event("shutdown")
 async def _shutdown_shared_http():
@@ -25,6 +34,22 @@ async def _shutdown_shared_http():
         await core.shutdown_http_client()
     except Exception:
         pass
+
+
+@app.on_event("shutdown")
+async def _shutdown_ws_proxy():
+    try:
+        await ws_proxy_client.stop()
+    except Exception:
+        core.logger.exception("Failed to stop WS proxy client")
+
+
+@app.on_event("shutdown")
+async def _shutdown_stream_push():
+    try:
+        await stream_pusher.stop_all()
+    except Exception:
+        core.logger.exception("Failed to stop stream push processes")
 
 
 @app.middleware("http")

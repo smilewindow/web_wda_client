@@ -6,89 +6,74 @@ function getGestureChannel(){ return 'appium'; }
 function getAppiumBaseAndSid(){
   return { base: (LS.getItem('ap.base')||'').trim(), sid: (LS.getItem('ap.sid')||'').trim() };
 }
-async function safeFetch(url, opts, actionLabel){
-  const isExec = typeof url === 'string' && url.indexOf('/api/appium/exec-mobile') >= 0;
-  const isWdaTap = typeof url === 'string' && url.indexOf('/api/tap') >= 0;
-  const isActions = typeof url === 'string' && url.indexOf('/api/appium/actions') >= 0;
-  let scriptName = '';
-  try{ if (isExec && opts && typeof opts.body === 'string'){ const b = JSON.parse(opts.body||'{}'); scriptName = String(b.script||''); } }catch(_e){}
+function describeWsError(err) {
+  if (!err) return '';
+  if (typeof err === 'string') return err;
+  if (typeof err === 'object') {
+    if (typeof err.message === 'string') return err.message;
+    try { return JSON.stringify(err); } catch (_e) {}
+  }
+  return String(err);
+}
+
+async function sendProxyRequest(messageType, payload, actionLabel, opts) {
+  const options = opts || {};
+  const skipSelfHeal = !!options.skipSelfHeal;
+  const isExec = messageType === 'appium.exec.mobile';
+  const isActions = messageType === 'appium.actions.execute';
+  const scriptName = (isExec && payload && typeof payload.script === 'string') ? String(payload.script) : '';
   const t0 = performance.now();
-  try{
-    log('fetch', actionLabel, url, opts);
-    const r = await fetch(url, opts);
+
+  try {
+    log('ws-request', actionLabel, messageType, payload);
+    const resp = await WSProxy.send(messageType, payload);
+    const statusCode = typeof resp.status === 'number' ? resp.status : 0;
     const ms = Math.round(performance.now() - t0);
-    if (isExec){ ev('req', { script: scriptName||'(unknown)', ms, status: r.status }); }
-    else if (isActions){ ev('req', { script: 'w3c: actions', ms, status: r.status }); }
-    else if (isWdaTap){ ev('req', { script: 'wda: tap', ms, status: r.status }); }
-    // 410 自愈：当返回 SESSION_GONE 且本地有 UDID 时，尝试自动创建会话并重试一次
-    if (!r.ok && r.status === 410 && !opts.__selfHeal) {
+    if (isExec) { ev('req', { script: scriptName || '(unknown)', ms, status: statusCode }); }
+    else if (isActions) { ev('req', { script: 'w3c: actions', ms, status: statusCode }); }
+
+    if (!resp.ok && resp.status === 410 && !skipSelfHeal) {
       try {
-        const js410 = await r.clone().json();
-        if (js410 && js410.code === 'SESSION_GONE') {
-          const baseLS = String(LS.getItem('ap.base')||'').trim();
-          const udid = String(LS.getItem('ap.udid')||'').trim();
-          if (baseLS && udid) {
-            try { toast('检测到会话失效，正在自动重建…', 'err'); } catch(_e){}
-            // 发起一次 create
-            const rCreate = await fetch(API + '/api/appium/create', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ base: baseLS, udid })
-            });
-            if (rCreate.ok) {
-              const j2 = await rCreate.json();
-              const newSid = (j2 && j2.sessionId) ? String(j2.sessionId) : '';
-              if (newSid) {
-                LS.setItem('ap.sid', newSid);
-                try { if (typeof window.__setAppSessionId === 'function') window.__setAppSessionId(newSid); } catch(_e){}
-                try { const ip = document.getElementById('ap-sid'); if (ip) ip.value = newSid; } catch(_e){}
-                try { toast('已自动重建会话，正在重试操作…', 'ok'); } catch(_e){}
-                // 用新 sid 重试一次原请求
-                const opts2 = Object.assign({}, opts, { __selfHeal: true });
-                try {
-                  if (opts2 && typeof opts2.body === 'string') {
-                    const b2 = JSON.parse(opts2.body || '{}');
-                    if (b2 && typeof b2 === 'object') { b2.sessionId = newSid; opts2.body = JSON.stringify(b2); }
-                  }
-                } catch(_e){}
-                const r2 = await fetch(url, opts2);
-                const ms2 = Math.round(performance.now() - t0);
-                if (isExec){ ev('req', { script: scriptName||'(unknown)', ms: ms2, status: r2.status, retried: true }); }
-                else if (isActions){ ev('req', { script: 'w3c: actions', ms: ms2, status: r2.status, retried: true }); }
-                return r2;
-              }
-            }
+        const baseLS = String(LS.getItem('ap.base') || '').trim();
+        const udid = String(LS.getItem('ap.udid') || '').trim();
+        if (baseLS && udid) {
+          try { toast('检测到会话失效，正在自动重建…', 'err'); } catch (_e) {}
+          const createResp = await WSProxy.send('appium.session.create', { base: baseLS, udid });
+          const data = createResp.data || {};
+          const newSid = (createResp.ok && data.sessionId) ? String(data.sessionId) : '';
+          if (newSid) {
+            LS.setItem('ap.sid', newSid);
+            try { if (typeof window.__setAppSessionId === 'function') window.__setAppSessionId(newSid); } catch (_e) {}
+            try { toast('已自动重建会话，正在重试操作…', 'ok'); } catch (_e) {}
+            const nextPayload = Object.assign({}, payload || {}, { sessionId: newSid });
+            return await sendProxyRequest(messageType, nextPayload, actionLabel, { skipSelfHeal: true });
           }
         }
-      } catch (_e) { /* ignore self-heal parsing errors */ }
+      } catch (_e) { /* ignore create failures */ }
     }
-    if(!r.ok){
-      let txt = '';
-      try{ txt = await r.text(); }catch(_e){}
-      let brief = '';
-      try{ const j = JSON.parse(txt); brief = j.error || txt; }catch(_e){ brief = txt; }
-      const hint = r.status===503 ? '（未检测到 WDA 会话，右下角“Appium 设置”创建或启用后端 WDA_AUTO_CREATE）' : '';
-      toast(`[${actionLabel}] 失败 (${r.status})：` + (brief||'') + hint, 'err');
-    }
-    // 成功响应：若后端自动重建会话，顶层可能携带 { recreated: true, sessionId: '...' }
-    if (r.ok) {
+
+    if (!resp.ok) {
+      const brief = describeWsError(resp.error);
+      const hint = statusCode === 503 ? '（未检测到 WDA 会话，右下角“Appium 设置”创建或启用后端 WDA_AUTO_CREATE）' : '';
+      toast(`[${actionLabel}] 失败 (${statusCode})：` + (brief || '') + hint, 'err');
+    } else {
       try {
-        const js = await r.clone().json();
-        const newSid = js && js.recreated === true && typeof js.sessionId === 'string' ? js.sessionId.trim() : '';
+        const data = resp.data;
+        const newSid = data && data.recreated === true && typeof data.sessionId === 'string' ? data.sessionId.trim() : '';
         if (newSid) {
           LS.setItem('ap.sid', newSid);
-          try { if (typeof window.__setAppSessionId === 'function') window.__setAppSessionId(newSid); } catch(_e){}
-          try { const ip = document.getElementById('ap-sid'); if (ip) ip.value = newSid; } catch(_e){}
-          try { toast('会话已自动重建，SessionId 已更新', 'ok'); } catch(_e){}
+          try { if (typeof window.__setAppSessionId === 'function') window.__setAppSessionId(newSid); } catch (_e) {}
+          try { toast('会话已自动重建，SessionId 已更新', 'ok'); } catch (_e) {}
         }
-      } catch(_e) { /* 非 JSON 或无该字段，忽略 */ }
+      } catch (_e) { /* ignore parsing issues */ }
     }
-    return r;
-  }catch(err){
+
+    return resp;
+  } catch (err) {
     const ms = Math.round(performance.now() - t0);
-    if (isExec){ ev('req', { script: scriptName||'(unknown)', ms, error: String(err) }); }
-    else if (isActions){ ev('req', { script: 'w3c: actions', ms, error: String(err) }); }
-    else if (isWdaTap){ ev('req', { script: 'wda: tap', ms, error: String(err) }); }
-    log('fetch-error', actionLabel, err);
+    if (isExec) { ev('req', { script: scriptName || '(unknown)', ms, error: String(err) }); }
+    else if (isActions) { ev('req', { script: 'w3c: actions', ms, error: String(err) }); }
+    log('ws-error', actionLabel, err);
     toast(`[${actionLabel}] 网络错误：` + err, 'err');
     throw err;
   }
@@ -99,10 +84,7 @@ async function mobileExec(script, args, label){
   if (MOBILE_BUSY){ toast('上一个操作未完成，请稍后', 'err'); return; }
   MOBILE_BUSY = true;
   try{
-    await safeFetch(API + '/api/appium/exec-mobile', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ base, sessionId: sid, script, args })
-    }, label);
+    await sendProxyRequest('appium.exec.mobile', { base, sessionId: sid, script, args }, label);
   } finally {
     MOBILE_BUSY = false;
   }
@@ -122,9 +104,7 @@ async function tapAt(x,y){
   if (DRYRUN){ log('DRYRUN w3c tap skip send', actions); return; }
   const { base, sid } = getAppiumBaseAndSid();
   if (!base || !sid){ toast('Appium 通道需要已配置 Base 与 Session', 'err'); return; }
-  await safeFetch(API + '/api/appium/actions', {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ base, sessionId: sid, actions })
-  }, 'W3C Actions');
+  await sendProxyRequest('appium.actions.execute', { base, sessionId: sid, actions }, 'W3C Actions');
 }
 async function longPressAt(x,y, durationMs){
   // 通过 W3C Actions 实现长按：按住指定时长
@@ -142,9 +122,7 @@ async function longPressAt(x,y, durationMs){
   if (DRYRUN){ log('DRYRUN w3c long-press skip send', actions); return; }
   const { base, sid } = getAppiumBaseAndSid();
   if (!base || !sid){ toast('Appium 通道需要已配置 Base 与 Session', 'err'); return; }
-  await safeFetch(API + '/api/appium/actions', {
-    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ base, sessionId: sid, actions })
-  }, 'W3C Actions');
+  await sendProxyRequest('appium.actions.execute', { base, sessionId: sid, actions }, 'W3C Actions');
 }
 
 function getPxScale(){
@@ -271,10 +249,7 @@ async function sendW3CTrace(trace){
     ev('w3c-actions', { steps: seq.length||0, moves, pauses, preview });
   }catch(_e){}
   if (DRYRUN){ log('DRYRUN w3c trace skip send', actions); return; }
-  await safeFetch(API + '/api/appium/actions', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ base, sessionId: sid, actions })
-  }, 'W3C Actions');
+  await sendProxyRequest('appium.actions.execute', { base, sessionId: sid, actions }, 'W3C Actions');
 }
 
 // 底部上滑 → Home 按钮
