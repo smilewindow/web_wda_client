@@ -54,7 +54,7 @@ async function sendProxyRequest(messageType, payload, actionLabel, opts) {
 
     if (!resp.ok) {
       const brief = describeWsError(resp.error);
-      const hint = statusCode === 503 ? '（未检测到 WDA 会话，右下角“Appium 设置”创建或启用后端 WDA_AUTO_CREATE）' : '';
+      const hint = statusCode === 503 ? '（未检测到 Appium 会话，请在右下角“Appium 设置”重新创建会话）' : '';
       toast(`[${actionLabel}] 失败 (${statusCode})：` + (brief || '') + hint, 'err');
     } else {
       try {

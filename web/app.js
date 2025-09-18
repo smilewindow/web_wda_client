@@ -29,7 +29,7 @@ function updateCursor(){
   }catch(_e){}
 }
 
-// 已移除直连 WDA 的 WebSocket 手势通道，前端仅走 Appium 通道。
+// WebSocket 手势通道仅通过 Appium；旧的直连方案已移除。
 
 // 设备尺寸（pt 与 px），用于坐标映射
 let devicePt = { w: null, h: null };
@@ -227,7 +227,7 @@ async function fetchDeviceInfo() {
     const resp = await WSProxy.send('device.info');
     if (!resp.ok) {
       const msg = formatErrorDetail(resp.error);
-      const hint = resp.status === 503 ? '未检测到 WDA 会话，请在右下角“Appium 设置”创建会话，或启用后端 WDA_AUTO_CREATE=true。' : '获取设备信息失败。';
+      const hint = resp.status === 503 ? '未检测到 Appium 会话，请在右下角“Appium 设置”创建或重新连接会话。' : '获取设备信息失败。';
       if (resp.status === 503) {
         setSessionId('');
         streamReady = false;

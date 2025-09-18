@@ -6,7 +6,6 @@ import httpx
 
 # Environment and global state shared across routers/utils
 
-WDA_BASE = os.environ.get("WDA_BASE", "http://127.0.0.1:8100").rstrip("/")
 MJPEG_URL = os.environ.get("MJPEG", "").rstrip("/")
 APPIUM_BASE = os.environ.get("APPIUM_BASE", "").rstrip("/")
 _DISCOVERY_BASE_ENV = os.environ.get("DEVICE_DISCOVERY_BASE") or os.environ.get("DISCOVERY_BASE") or "http://127.0.0.1:3030"
@@ -14,22 +13,6 @@ DISCOVERY_BASE = _DISCOVERY_BASE_ENV.rstrip("/") if _DISCOVERY_BASE_ENV else ""
 
 # Track last created Appium session per base
 APPIUM_LATEST: Dict[str, str] = {}
-
-# Control modes
-CONTROL_MODE_ENV = os.environ.get("CONTROL_MODE", "auto").strip().lower()
-if CONTROL_MODE_ENV not in {"auto", "wda", "actions", "jsonwp"}:
-    CONTROL_MODE_ENV = "auto"
-ALLOW_FALLBACK = os.environ.get("ALLOW_FALLBACK", "true").strip().lower() in {"1","true","yes","y"}
-CURRENT_MODE: str = CONTROL_MODE_ENV
-
-# WDA tap implementation preference
-WDA_TAP_IMPL = os.environ.get("WDA_TAP_IMPL", "auto").strip().lower()
-if WDA_TAP_IMPL not in {"auto", "tap0", "drag"}:
-    WDA_TAP_IMPL = "auto"
-PREFERRED_WDA_TAP: str = WDA_TAP_IMPL
-
-# Single WDA session (lazy created)
-SESSION_ID = None  # type: ignore
 
 # Logger
 logger = logging.getLogger("wda.web")
@@ -45,16 +28,6 @@ logger.setLevel(logging.INFO)
 
 # Disable uvicorn's default access logs to avoid duplication with our REQ/RESP
 logging.getLogger("uvicorn.access").disabled = True
-
-# Whether backend is allowed to create a new WDA session when none exists.
-# auto: disable auto-create if APPIUM_BASE is set; otherwise enable.
-_AUTO_ENV = os.environ.get("WDA_AUTO_CREATE", "auto").strip().lower()
-if _AUTO_ENV in {"1", "true", "yes", "y"}:
-    WDA_AUTO_CREATE = True
-elif _AUTO_ENV in {"0", "false", "no", "n"}:
-    WDA_AUTO_CREATE = False
-else:
-    WDA_AUTO_CREATE = False if APPIUM_BASE else True
 
 # ---------------------------------------------------------------------------
 # Shared HTTP client (connection pool + unified timeouts/limits)
@@ -84,7 +57,7 @@ async def get_http_client() -> httpx.AsyncClient:
             limits=HTTP_LIMITS,
             timeout=HTTP_TIMEOUT,
             headers={"User-Agent": "wda-web/1.0"},
-            http2=False,  # keep H1 for widest compatibility with WDA/Appium
+            http2=False,
         )
     return _HTTP_CLIENT
 
