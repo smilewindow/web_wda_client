@@ -228,6 +228,18 @@ async function fetchDeviceInfo() {
     if (!resp.ok) {
       const msg = formatErrorDetail(resp.error);
       const hint = resp.status === 503 ? '未检测到 WDA 会话，请在右下角“Appium 设置”创建会话，或启用后端 WDA_AUTO_CREATE=true。' : '获取设备信息失败。';
+      if (resp.status === 503) {
+        setSessionId('');
+        streamReady = false;
+        updateCursor();
+        if (img) {
+          img.src = '';
+        }
+        if (webrtc) {
+          try { webrtc.src = ''; webrtc.load && webrtc.load(); } catch (_e) {}
+        }
+        applyStreamMode();
+      }
       toast(hint + (msg ? `（${String(msg).slice(0, 200)}）` : ''), 'err');
       return;
     }

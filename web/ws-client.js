@@ -64,7 +64,7 @@
 
   function startConnect() {
     clearReconnectTimer();
-    try { if (state.socket) { state.socket.close(); } } catch (_e) {}
+    try { if (state.socket) { state.socket.close(); } } catch (_e) { }
     try {
       state.socket = new WebSocket(state.url);
     } catch (err) {
@@ -150,7 +150,7 @@
     if (!msgId) {
       // Broadcast-only system message
       listeners.forEach((fn) => {
-        try { fn(state.status, message); } catch (_e) {}
+        try { fn(state.status, message); } catch (_e) { }
       });
       return;
     }
@@ -211,8 +211,8 @@
       message,
       timeout,
       timeoutHandle: null,
-      resolve: () => {},
-      reject: () => {},
+      resolve: () => { },
+      reject: () => { },
     };
 
     const promise = new Promise((resolve, reject) => {
