@@ -160,6 +160,7 @@ import { useToastStore } from './stores/toastStore';
 const { pushToast } = useToastStore();
 const LS = safeLocalStorage;
 const isDev = import.meta.env.DEV;
+const isProd = import.meta.env.PROD;
 
 function getParam(name) {
   try {
@@ -523,6 +524,7 @@ function clampZoom(n) {
 }
 
 function readStreamMode() {
+  if (isProd) return 'webrtc';
   const raw = String(getLS('stream.mode', 'mjpeg') || 'mjpeg');
   return raw === 'webrtc' ? 'webrtc' : 'mjpeg';
 }
@@ -702,7 +704,7 @@ function applyStreamMode() {
   if (!hasAppiumSession()) {
     mjpegSrc.value = '';
     webrtcSrc.value = '';
-    if (streamMode.value !== 'mjpeg') streamMode.value = 'mjpeg';
+    if (!isProd && streamMode.value !== 'mjpeg') streamMode.value = 'mjpeg';
     updateDisplayLayout();
     return;
   }
