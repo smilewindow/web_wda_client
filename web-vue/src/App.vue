@@ -9,16 +9,18 @@
     </div>
     <div id="hud-controls">
       <button class="btn" id="btn-zoom-panel" @click="toggleZoomPanel">画面缩放</button>
-      <button class="btn" id="btn-stream-panel" @click="toggleStreamPanel">流源切换</button>
-      <button class="btn" id="btn-ws-config" @click="toggleWsConfigPanel">WebSocket 配置</button>
-      <button class="btn" id="btn-pull-config" @click="togglePullConfigPanel">拉流配置</button>
+      <template v-if="isDev">
+        <button class="btn" id="btn-stream-panel" @click="toggleStreamPanel">流源切换</button>
+        <button class="btn" id="btn-ws-config" @click="toggleWsConfigPanel">WebSocket 配置</button>
+        <button class="btn" id="btn-pull-config" @click="togglePullConfigPanel">拉流配置</button>
+      </template>
     </div>
     <div id="hud-zoom" v-show="showZoomPanel">
       <label for="view-zoom" class="muted" style="min-width:72px">画面缩放%</label>
       <input type="range" id="view-zoom" min="50" max="200" step="5" v-model.number="viewZoomPct" />
       <span class="val" id="view-zoom-val">{{ viewZoomLabel }}</span>
     </div>
-    <div id="hud-stream" v-show="showStreamPanel">
+    <div v-if="isDev" id="hud-stream" v-show="showStreamPanel">
       <label for="stream-mode" class="muted">流源</label>
       <select id="stream-mode" v-model="pendingStreamMode" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
         <option value="mjpeg">MJPEG（后端 /stream）</option>
@@ -26,12 +28,12 @@
       </select>
       <button class="btn" id="stream-apply" @click="applyStreamSelection">应用流源</button>
     </div>
-    <div id="hud-ws-config" v-show="showWsConfigPanel">
+    <div v-if="isDev" id="hud-ws-config" v-show="showWsConfigPanel">
       <label for="ws-host-port" class="muted">WS 地址</label>
       <input type="text" id="ws-host-port" v-model="wsHostInput" placeholder="host:port 或 ws://地址" />
       <button class="btn" id="ws-apply" @click="applyWsConfig">应用</button>
     </div>
-    <div id="hud-pull-config" v-show="showPullConfigPanel">
+    <div v-if="isDev" id="hud-pull-config" v-show="showPullConfigPanel">
       <div class="pull-row">
         <label for="pull-webrtc-host" class="muted">WebRTC 地址</label>
         <input
@@ -44,7 +46,7 @@
       <button class="btn" id="pull-apply" @click="applyStreamConfig">应用</button>
     </div>
 
-    <button id="gest-toggle" @click="toggleGesturePanel">手势日志</button>
+    <button v-if="isDev" id="gest-toggle" @click="toggleGesturePanel">手势日志</button>
 
     <div id="wrap">
       <div id="phone" ref="phoneRef">
@@ -76,7 +78,7 @@
       <button class="btn" id="btn-reload" @click="reloadStreamClick">重载</button>
     </div>
 
-    <div id="gest-panel" v-show="showGesturePanel">
+    <div v-if="isDev" id="gest-panel" v-show="showGesturePanel">
       <header>
         <div class="row">
           <label for="gest-w3c-tune" class="muted">滚动调优（W3C）</label>
@@ -157,6 +159,7 @@ import { useToastStore } from './stores/toastStore';
 
 const { pushToast } = useToastStore();
 const LS = safeLocalStorage;
+const isDev = import.meta.env.DEV;
 
 function getParam(name) {
   try {
@@ -172,7 +175,8 @@ function hostWithBracket(host) {
 }
 
 const defaultApiBase = (getParam('api') || `${window.location.protocol}//${hostWithBracket(window.location.hostname)}:7070`).replace(/\/+$/, '');
-const defaultWebrtcBase = 'http://127.0.0.1:8889/iphone'.replace(/\/+$/, '');
+const rawEnvWebrtcBase = (import.meta.env.VITE_DEFAULT_WEBRTC_BASE || 'http://127.0.0.1:8889/iphone').trim();
+const defaultWebrtcBase = (rawEnvWebrtcBase || 'http://127.0.0.1:8889/iphone').replace(/\/+$/, '');
 const WEBRTC_QUERY_SUFFIX = 'controls=false&muted=true&autoplay=true&playsinline=true';
 
 const apiBase = ref(defaultApiBase);
