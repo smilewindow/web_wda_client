@@ -42,10 +42,10 @@ HTTP_LIMITS = httpx.Limits(
     keepalive_expiry=float(os.environ.get("HTTP_KEEPALIVE_EXPIRY", "45")),
 )
 HTTP_TIMEOUT = httpx.Timeout(
-    timeout=float(os.environ.get("HTTP_TIMEOUT", "30")),
-    connect=float(os.environ.get("HTTP_CONNECT_TIMEOUT", "5")),
-    read=float(os.environ.get("HTTP_READ_TIMEOUT", "30")),
-    write=float(os.environ.get("HTTP_WRITE_TIMEOUT", "30")),
+    timeout=float(os.environ.get("HTTP_TIMEOUT", "120")),
+    connect=float(os.environ.get("HTTP_CONNECT_TIMEOUT", "10")),
+    read=float(os.environ.get("HTTP_READ_TIMEOUT", "120")),
+    write=float(os.environ.get("HTTP_WRITE_TIMEOUT", "120")),
 )
 
 

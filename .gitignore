@@ -10,6 +10,7 @@ __pycache__/
 env/
 venv/
 /server/.venv/
+/server/logs/ffmpeg/
 
 # macOS
 .DS_Store

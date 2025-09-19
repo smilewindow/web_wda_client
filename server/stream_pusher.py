@@ -1,6 +1,8 @@
 import asyncio
 import contextlib
 import os
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -39,6 +41,61 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
         query = urlencode(credentials)
         output_url = output_url + ("&" if "?" in output_url else "?") + query
 
+    log_path = _prepare_ffmpeg_log_path(udid, session_id)
+    if log_path:
+        core.logger.info("ffmpeg log file: %s", log_path)
+
+    # cmd = [
+    #     FFMPEG_BIN,
+    #     # 取消输入缓冲，降低整体延迟。
+    #     "-fflags", "nobuffer",
+    #     # 启用低延迟处理模式。
+    #     "-flags", "low_delay",
+    #     # 使用系统时钟作为时间戳，保持实时性。
+    #     "-use_wallclock_as_timestamps", "1",
+    #     # 读取超时设置为 60 秒。
+    #     "-rw_timeout", "60000000",
+    #     # 打开断线重连开关。
+    #     "-reconnect", "1",
+    #     "-reconnect_at_eof", "1",
+    #     # 针对流媒体与网络错误启用重连。
+    #     "-reconnect_streamed", "1",
+    #     "-reconnect_on_network_error", "1",
+    #     # 重连最大间隔 5 秒。
+    #     "-reconnect_delay_max", "5",
+    #     # 指定输入为 MJPEG。
+    #     "-f", "mjpeg",
+    #     # MJPEG 输入地址。
+    #     "-i", input_url,
+    #     # 缩放至 540 宽、限制 15fps、转换为 4:2:0。
+    #     "-vf", "scale=540:-2,fps=15:round=down,format=yuv420p",
+    #     # 保留原始时间戳，避免补帧。
+    #     "-vsync", "passthrough",
+    #     # 保持帧率直通模式。
+    #     "-fps_mode", "passthrough",
+    #     # 使用 Apple 硬件 H.264 编码，低延迟。
+    #     "-c:v", "h264_videotoolbox",
+    #     # 告知编码器以实时模式运行。
+    #     "-realtime", "1",
+    #     # 使用 baseline profile，提高兼容性。
+    #     "-profile:v", "baseline",
+    #     # GOP 长度 15 帧（约 1 秒）。
+    #     "-g", "15",
+    #     # 目标码率 900kbps。
+    #     "-b:v", "900k",
+    #     # 峰值码率同样限制在 900kbps。
+    #     "-maxrate", "900k",
+    #     # VBV 缓冲区 300kb，降低延迟。
+    #     "-bufsize", "300k",
+    #     # RTMP 采用直播模式并缩小缓冲。
+    #     "-rtmp_live", "live",
+    #     "-rtmp_buffer", "100",
+    #     # 禁止写入时长和文件大小元数据。
+    #     "-flvflags", "no_duration_filesize",
+    #     # 以 FLV 输出到指定 RTMP。
+    #     "-f", "flv",
+    #     output_url,
+    # ]
     cmd = [
         FFMPEG_BIN,
         "-fflags", "nobuffer",
@@ -79,7 +136,10 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
             core.logger.exception("Failed to start ffmpeg for %s", udid)
             return str(exc)
 
-        reader_task = asyncio.create_task(_pump_logs(udid, proc), name=f"ffmpeg-log-{udid}")
+        reader_task = asyncio.create_task(
+            _pump_logs(udid, proc, log_path),
+            name=f"ffmpeg-log-{udid}",
+        )
         _STREAMS[udid] = _StreamState(proc, reader_task)
         core.logger.info(
             "Started ffmpeg push for udid=%s session=%s input=%s output=%s pid=%s",
@@ -131,18 +191,38 @@ async def _stop_stream_unlocked(udid: str) -> None:
     core.logger.info("Stopped ffmpeg push for udid=%s", udid)
 
 
-async def _pump_logs(udid: str, proc: asyncio.subprocess.Process) -> None:
+async def _pump_logs(
+    udid: str,
+    proc: asyncio.subprocess.Process,
+    log_path: Optional[Path] = None,
+) -> None:
+    log_file = None
+    if log_path:
+        try:
+            log_file = log_path.open("a", encoding="utf-8", buffering=1)
+        except OSError:
+            core.logger.exception("Failed to open ffmpeg log file %s", log_path)
+            log_file = None
+
     async def _read(stream, prefix):
+        nonlocal log_file
         if stream is None:
             return
         while True:
             line = await stream.readline()
             if not line:
                 break
-            core.logger.debug("[ffmpeg %s %s] %s", udid, prefix, line.decode(errors="ignore").rstrip())
+            text = line.decode(errors="ignore").rstrip()
+            core.logger.debug("[ffmpeg %s %s] %s", udid, prefix, text)
+            if log_file:
+                log_file.write(f"{datetime.now().isoformat()} [{prefix}] {text}\n")
 
-    await asyncio.gather(_read(proc.stdout, "stdout"), _read(proc.stderr, "stderr"))
-    await proc.wait()
+    try:
+        await asyncio.gather(_read(proc.stdout, "stdout"), _read(proc.stderr, "stderr"))
+        await proc.wait()
+    finally:
+        if log_file:
+            log_file.close()
 
 
 def _build_mjpeg_url(base_url: str, port: int) -> str:
@@ -150,3 +230,31 @@ def _build_mjpeg_url(base_url: str, port: int) -> str:
     host = parsed.hostname or "127.0.0.1"
     scheme = parsed.scheme or "http"
     return f"{scheme}://{host}:{port}"
+
+
+def _prepare_ffmpeg_log_path(udid: str, session_id: str) -> Optional[Path]:
+    base_dir = os.environ.get("FFMPEG_LOG_DIR")
+    if base_dir:
+        log_dir = Path(base_dir).expanduser()
+    else:
+        log_dir = Path(__file__).resolve().parent / "logs" / "ffmpeg"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        core.logger.exception("Failed to ensure ffmpeg log directory %s", log_dir)
+        return None
+
+    safe_udid = _sanitize_for_filename(udid) or "unknown_udid"
+    safe_session = _sanitize_for_filename(session_id) or "unknown_session"
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return log_dir / f"{safe_udid}-{safe_session}-{timestamp}.log"
+
+
+def _sanitize_for_filename(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    cleaned = [
+        ch if ch.isalnum() or ch in {"-", "_", "."} else "_"
+        for ch in value
+    ]
+    return "".join(cleaned).strip("_")

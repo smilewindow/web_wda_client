@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import json
 import os
-import traceback
 import uuid
 from typing import Any, Dict, Optional
 
@@ -94,8 +93,8 @@ class WebSocketProxyClient:
                             await ping_task
             except asyncio.CancelledError:
                 break
-            except Exception:  # noqa: BLE001
-                core.logger.warning("WS proxy connection failed: %s", traceback.format_exc(limit=1).strip())
+            except Exception as exc:  # noqa: BLE001
+                core.logger.warning("WS proxy connection failed: %s: %s", type(exc).__name__, exc)
             finally:
                 self._ws = None
 
