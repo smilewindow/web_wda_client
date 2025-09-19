@@ -22,6 +22,12 @@ body{margin:0;background:var(--bg);color:var(--fg);font:var(--font)}
 #hud-stream .btn{padding:6px 10px;font-size:13px}
 
 #hud-ws-config,#hud-pull-config{position:fixed;left:12px;top:142px;background:rgba(22,22,26,.75);backdrop-filter:saturate(1.2) blur(6px);border:1px solid var(--line);border-radius:12px;padding:6px 10px;display:flex;align-items:center;gap:8px;z-index:10000}
+#hud-ws-config{flex-direction:row}
+#hud-pull-config{flex-direction:column;align-items:stretch;gap:10px}
+#hud-pull-config .pull-row{display:flex;align-items:center;gap:8px}
+#hud-pull-config .pull-row label{min-width:86px}
+#hud-pull-config .pull-row input{flex:1 1 auto}
+#hud-pull-config .btn{align-self:flex-end}
 #hud-ws-config label,#hud-pull-config label{font-size:14px;color:var(--fg);opacity:.85}
 #hud-ws-config input,#hud-pull-config input{min-width:180px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)}
 #hud-ws-config .btn,#hud-pull-config .btn{padding:6px 10px;font-size:13px}

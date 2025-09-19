@@ -32,8 +32,24 @@
       <button class="btn" id="ws-apply" @click="applyWsConfig">应用</button>
     </div>
     <div id="hud-pull-config" v-show="showPullConfigPanel">
-      <label for="pull-host-port" class="muted">拉流地址</label>
-      <input type="text" id="pull-host-port" v-model="streamHostInput" placeholder="host:port 或 http://地址" />
+      <div class="pull-row">
+        <label for="pull-mjpeg-host" class="muted">MJPEG 地址</label>
+        <input
+          type="text"
+          id="pull-mjpeg-host"
+          v-model="mjpegHostInput"
+          placeholder="host:port 或 http://地址（留空默认后端 /stream，常见 7070；直接 MJPEG 常用 9100）"
+        />
+      </div>
+      <div class="pull-row">
+        <label for="pull-webrtc-host" class="muted">WebRTC 地址</label>
+        <input
+          type="text"
+          id="pull-webrtc-host"
+          v-model="webrtcHostInput"
+          placeholder="host:port 或 http://地址（留空默认 8889/iphone）"
+        />
+      </div>
       <button class="btn" id="pull-apply" @click="applyStreamConfig">应用</button>
     </div>
 
@@ -202,10 +218,10 @@ function resolveWsUrlInput(raw) {
   }
 }
 
-function resolveStreamBasesInput(raw) {
+function resolveHttpBaseInput(raw) {
   const trimmed = (raw || '').trim();
   if (!trimmed) {
-    return { ok: true, httpBase: defaultApiBase, webrtcBase: defaultWebrtcBase };
+    return { ok: true, base: defaultApiBase };
   }
   try {
     let target;
@@ -216,17 +232,46 @@ function resolveStreamBasesInput(raw) {
       target = new URL(`${httpProto}//${trimmed}`);
     }
     const cleanPath = target.pathname.replace(/\/+$/, '');
-    const httpBase = trimTrailingSlashes(`${target.protocol}//${target.host}${cleanPath}` || `${target.protocol}//${target.host}`);
-    let webrtcCandidate;
-    if (!cleanPath || cleanPath === '') {
-      webrtcCandidate = trimTrailingSlashes(`${httpBase}/iphone`);
-    } else {
-      webrtcCandidate = httpBase;
-    }
-    return { ok: true, httpBase, webrtcBase: webrtcCandidate };
+    const base = trimTrailingSlashes(`${target.protocol}//${target.host}${cleanPath}` || `${target.protocol}//${target.host}`);
+    return { ok: true, base };
   } catch (err) {
     return { ok: false, message: err.message || 'invalid url' };
   }
+}
+
+function resolveWebrtcBaseInput(raw) {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) {
+    return { ok: true, base: defaultWebrtcBase };
+  }
+  try {
+    let target;
+    if (/^https?:\/\//i.test(trimmed)) {
+      target = new URL(trimmed);
+    } else {
+      const httpProto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+      target = new URL(`${httpProto}//${trimmed}`);
+    }
+    const cleanPath = target.pathname.replace(/\/+$/, '');
+    const base = (!cleanPath || cleanPath === '')
+      ? trimTrailingSlashes(`${target.protocol}//${target.host}/iphone`)
+      : trimTrailingSlashes(`${target.protocol}//${target.host}${cleanPath}`);
+    return { ok: true, base };
+  } catch (err) {
+    return { ok: false, message: err.message || 'invalid url' };
+  }
+}
+
+function resolveStreamBasesInput(raw) {
+  const http = resolveHttpBaseInput(raw);
+  if (!http.ok) {
+    return { ok: false, message: http.message || 'invalid http url' };
+  }
+  const webrtc = resolveWebrtcBaseInput(raw);
+  if (!webrtc.ok) {
+    return { ok: false, message: webrtc.message || 'invalid webrtc url' };
+  }
+  return { ok: true, httpBase: http.base, webrtcBase: webrtc.base };
 }
 
 const streamMode = ref(readStreamMode());
@@ -269,19 +314,75 @@ const showPullConfigPanel = ref(false);
 
 const wsHostPort = ref((getLS('custom.ws.hostport', '') || '').trim());
 const wsHostInput = ref(wsHostPort.value);
-const streamHostPort = ref((getLS('custom.stream.hostport', '') || '').trim());
-const streamHostInput = ref(streamHostPort.value);
+const legacyStreamHost = (getLS('custom.stream.hostport', '') || '').trim();
+const streamMjpegHost = ref((getLS('custom.stream.mjpeg', '') || '').trim());
+const streamWebrtcHost = ref((getLS('custom.stream.webrtc', '') || '').trim());
+const mjpegHostInput = ref(streamMjpegHost.value);
+const webrtcHostInput = ref(streamWebrtcHost.value);
 
-if (streamHostPort.value) {
-  const resolved = resolveStreamBasesInput(streamHostPort.value);
+if (legacyStreamHost) {
+  const resolved = resolveStreamBasesInput(legacyStreamHost);
   if (resolved.ok) {
-    apiBase.value = resolved.httpBase;
+    let useLegacyMjpeg = true;
+    try {
+      let target;
+      if (/^https?:\/\//i.test(legacyStreamHost)) {
+        target = new URL(legacyStreamHost);
+      } else {
+        const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        target = new URL(`${proto}//${legacyStreamHost}`);
+      }
+      const port = target.port || (target.protocol === 'https:' ? '443' : '80');
+      const cleanPath = target.pathname.replace(/\/+$/, '').toLowerCase();
+      if (cleanPath.includes('iphone')) {
+        useLegacyMjpeg = false;
+      } else if (port === '8889' && !cleanPath) {
+        useLegacyMjpeg = false;
+      }
+    } catch (_err) {}
+
+    if (useLegacyMjpeg) {
+      apiBase.value = resolved.httpBase;
+      streamMjpegHost.value = legacyStreamHost;
+      mjpegHostInput.value = legacyStreamHost;
+      setLS('custom.stream.mjpeg', legacyStreamHost);
+    } else {
+      apiBase.value = defaultApiBase;
+      streamMjpegHost.value = '';
+      mjpegHostInput.value = '';
+      removeLS('custom.stream.mjpeg');
+    }
+
     webrtcBase.value = resolved.webrtcBase;
+    streamWebrtcHost.value = resolved.webrtcBase;
+    webrtcHostInput.value = resolved.webrtcBase;
+    setLS('custom.stream.webrtc', resolved.webrtcBase);
   } else {
     console.warn('[hud] invalid stored stream host', resolved.message);
-    streamHostPort.value = '';
-    streamHostInput.value = '';
-    removeLS('custom.stream.hostport');
+  }
+  removeLS('custom.stream.hostport');
+} else {
+  if (streamMjpegHost.value) {
+    const resolvedHttp = resolveHttpBaseInput(streamMjpegHost.value);
+    if (resolvedHttp.ok) {
+      apiBase.value = resolvedHttp.base;
+    } else {
+      console.warn('[hud] invalid stored MJPEG host', resolvedHttp.message);
+      streamMjpegHost.value = '';
+      mjpegHostInput.value = '';
+      removeLS('custom.stream.mjpeg');
+    }
+  }
+  if (streamWebrtcHost.value) {
+    const resolvedWebrtc = resolveWebrtcBaseInput(streamWebrtcHost.value);
+    if (resolvedWebrtc.ok) {
+      webrtcBase.value = resolvedWebrtc.base;
+    } else {
+      console.warn('[hud] invalid stored WebRTC host', resolvedWebrtc.message);
+      streamWebrtcHost.value = '';
+      webrtcHostInput.value = '';
+      removeLS('custom.stream.webrtc');
+    }
   }
 }
 if (wsHostPort.value) {
@@ -336,7 +437,8 @@ watch(showWsConfigPanel, (visible) => {
 
 watch(showPullConfigPanel, (visible) => {
   if (visible) {
-    streamHostInput.value = streamHostPort.value;
+    mjpegHostInput.value = streamMjpegHost.value;
+    webrtcHostInput.value = streamWebrtcHost.value;
   }
 });
 
@@ -757,7 +859,8 @@ function togglePullConfigPanel() {
   closeAllHudPanels();
   showPullConfigPanel.value = next;
   if (next) {
-    streamHostInput.value = streamHostPort.value;
+    mjpegHostInput.value = streamMjpegHost.value;
+    webrtcHostInput.value = streamWebrtcHost.value;
   }
 }
 
@@ -795,21 +898,35 @@ function applyWsConfig() {
 }
 
 function applyStreamConfig() {
-  const raw = (streamHostInput.value || '').trim();
-  const resolved = resolveStreamBasesInput(raw);
-  if (!resolved.ok) {
-    toast(`拉流地址无效：${resolved.message}`, 'err');
+  const mjpegRaw = (mjpegHostInput.value || '').trim();
+  const webrtcRaw = (webrtcHostInput.value || '').trim();
+  const resolvedHttp = resolveHttpBaseInput(mjpegRaw);
+  if (!resolvedHttp.ok) {
+    toast(`MJPEG 地址无效：${resolvedHttp.message}`, 'err');
     return;
   }
-  streamHostPort.value = raw;
-  if (raw) {
-    setLS('custom.stream.hostport', raw);
-  } else {
-    removeLS('custom.stream.hostport');
+  const resolvedWebrtc = resolveWebrtcBaseInput(webrtcRaw);
+  if (!resolvedWebrtc.ok) {
+    toast(`WebRTC 地址无效：${resolvedWebrtc.message}`, 'err');
+    return;
   }
-  streamHostInput.value = raw;
-  apiBase.value = resolved.httpBase;
-  webrtcBase.value = resolved.webrtcBase;
+  streamMjpegHost.value = mjpegRaw;
+  streamWebrtcHost.value = webrtcRaw;
+  if (mjpegRaw) {
+    setLS('custom.stream.mjpeg', mjpegRaw);
+  } else {
+    removeLS('custom.stream.mjpeg');
+  }
+  if (webrtcRaw) {
+    setLS('custom.stream.webrtc', webrtcRaw);
+  } else {
+    removeLS('custom.stream.webrtc');
+  }
+  removeLS('custom.stream.hostport');
+  mjpegHostInput.value = mjpegRaw;
+  webrtcHostInput.value = webrtcRaw;
+  apiBase.value = resolvedHttp.base;
+  webrtcBase.value = resolvedWebrtc.base;
   applyStreamMode();
   reloadCurrentStream();
   pendingStreamMode.value = streamMode.value;
