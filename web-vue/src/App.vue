@@ -300,6 +300,7 @@ if (wsHostPort.value) {
 watch(showAppiumPanel, (visible) => {
   if (visible) {
     loadAppiumPrefs();
+    refreshAppiumSettingsFromBackend();
   }
 });
 
@@ -386,6 +387,8 @@ const appiumSettings = reactive({
   quality: Number(getLS('ap.quality', '15')) || 15,
 });
 
+let appiumSettingsFetching = false;
+
 function clampAppiumSetting(value, min, max, fallback) {
   const num = Number(value);
   if (!Number.isFinite(num)) return fallback;
@@ -405,6 +408,80 @@ function loadAppiumPrefs() {
     viewZoomPct.value = storedZoom;
   } else {
     nextTick(() => applyViewZoom(storedZoom));
+  }
+}
+
+async function refreshAppiumSettingsFromBackend() {
+  if (appiumSettingsFetching) return;
+  const sid = apSessionId.value.trim();
+  if (!sid) return;
+  const httpBase = trimTrailingSlashes(apiBase.value || defaultApiBase);
+  if (!httpBase) return;
+  const baseParam = String(getLS('ap.base', AP_BASE) || AP_BASE || '').trim();
+  const params = new URLSearchParams();
+  params.set('sessionId', sid);
+  if (baseParam) params.set('base', baseParam);
+  const url = `${httpBase}/api/appium/settings?${params.toString()}`;
+
+  appiumSettingsFetching = true;
+  try {
+    const resp = await fetch(url, { method: 'GET' });
+    const rawBody = await resp.text();
+    let data = null;
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody);
+      } catch (err) {
+        data = null;
+        if (resp.ok) {
+          console.warn('[appium] failed to parse settings response', err, rawBody);
+          toast('解析 Appium 设置失败', 'err');
+        }
+      }
+    }
+
+    if (!resp.ok) {
+      let detail = '';
+      if (data && typeof data === 'object') {
+        detail = data.message || data.error || '';
+      } else if (rawBody) {
+        detail = rawBody;
+      }
+      if (resp.status === 410) {
+        setSessionId('');
+        streamReady.value = false;
+        updateCursor();
+        mjpegSrc.value = '';
+        webrtcSrc.value = '';
+        applyStreamMode();
+      }
+      const hint = detail ? `：${String(detail).slice(0, 200)}` : '';
+      toast(`获取 Appium 设置失败(${resp.status})${hint}`, 'err');
+      return;
+    }
+
+    if (!data || typeof data !== 'object') {
+      return;
+    }
+    const payload = data.value && typeof data.value === 'object' ? data.value : data;
+    const scaleRaw = payload.mjpegScalingFactor;
+    const fpsRaw = payload.mjpegServerFramerate;
+    const qualityRaw = payload.mjpegServerScreenshotQuality;
+
+    const scale = scaleRaw == null ? appiumSettings.scale : clampAppiumSetting(scaleRaw, 30, 100, appiumSettings.scale);
+    const fps = fpsRaw == null ? appiumSettings.fps : clampAppiumSetting(fpsRaw, 1, 60, appiumSettings.fps);
+    const quality = qualityRaw == null ? appiumSettings.quality : clampAppiumSetting(qualityRaw, 5, 50, appiumSettings.quality);
+
+    if (appiumSettings.scale !== scale) appiumSettings.scale = scale;
+    if (appiumSettings.fps !== fps) appiumSettings.fps = fps;
+    if (appiumSettings.quality !== quality) appiumSettings.quality = quality;
+    setLS('ap.scale', String(scale));
+    setLS('ap.fps', String(fps));
+    setLS('ap.quality', String(quality));
+  } catch (err) {
+    toast(`获取 Appium 设置失败：${err}`, 'err');
+  } finally {
+    appiumSettingsFetching = false;
   }
 }
 
@@ -1136,6 +1213,7 @@ async function createSessionWithUdid(rawUdid) {
       streamToastShown.value = false;
       reloadCurrentStream();
       fetchDeviceInfo();
+      refreshAppiumSettingsFromBackend();
       showDevicePanel.value = false;
     } else {
       const msg = describeWsError(resp.error);
@@ -1403,6 +1481,7 @@ function setupGestureRecognizer() {
 
 onMounted(() => {
   loadAppiumPrefs();
+  refreshAppiumSettingsFromBackend();
   wsProxy.ensureConnection();
   window.addEventListener('resize', updateDisplayLayout);
   const canvas = canvasRef.value;
