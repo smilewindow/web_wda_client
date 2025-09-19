@@ -415,39 +415,16 @@ async function refreshAppiumSettingsFromBackend() {
   if (appiumSettingsFetching) return;
   const sid = apSessionId.value.trim();
   if (!sid) return;
-  const httpBase = trimTrailingSlashes(apiBase.value || defaultApiBase);
-  if (!httpBase) return;
   const baseParam = String(getLS('ap.base', AP_BASE) || AP_BASE || '').trim();
-  const params = new URLSearchParams();
-  params.set('sessionId', sid);
-  if (baseParam) params.set('base', baseParam);
-  const url = `${httpBase}/api/appium/settings?${params.toString()}`;
+  const payload = { sessionId: sid };
+  if (baseParam) payload.base = baseParam;
 
   appiumSettingsFetching = true;
   try {
-    const resp = await fetch(url, { method: 'GET' });
-    const rawBody = await resp.text();
-    let data = null;
-    if (rawBody) {
-      try {
-        data = JSON.parse(rawBody);
-      } catch (err) {
-        data = null;
-        if (resp.ok) {
-          console.warn('[appium] failed to parse settings response', err, rawBody);
-          toast('解析 Appium 设置失败', 'err');
-        }
-      }
-    }
-
+    const resp = await wsProxy.send('appium.settings.fetch', payload);
     if (!resp.ok) {
-      let detail = '';
-      if (data && typeof data === 'object') {
-        detail = data.message || data.error || '';
-      } else if (rawBody) {
-        detail = rawBody;
-      }
-      if (resp.status === 410) {
+      const status = typeof resp.status === 'number' ? resp.status : 0;
+      if (status === 410) {
         setSessionId('');
         streamReady.value = false;
         updateCursor();
@@ -455,18 +432,21 @@ async function refreshAppiumSettingsFromBackend() {
         webrtcSrc.value = '';
         applyStreamMode();
       }
-      const hint = detail ? `：${String(detail).slice(0, 200)}` : '';
-      toast(`获取 Appium 设置失败(${resp.status})${hint}`, 'err');
+      const detailRaw = describeWsError(resp.error);
+      const statusLabel = status > 0 ? String(status) : '未知';
+      const hint = detailRaw ? `：${String(detailRaw).slice(0, 200)}` : '';
+      toast(`获取 Appium 设置失败(${statusLabel})${hint}`, 'err');
       return;
     }
 
+    const data = resp.data;
     if (!data || typeof data !== 'object') {
       return;
     }
-    const payload = data.value && typeof data.value === 'object' ? data.value : data;
-    const scaleRaw = payload.mjpegScalingFactor;
-    const fpsRaw = payload.mjpegServerFramerate;
-    const qualityRaw = payload.mjpegServerScreenshotQuality;
+    const payloadData = data.value && typeof data.value === 'object' ? data.value : data;
+    const scaleRaw = payloadData.mjpegScalingFactor;
+    const fpsRaw = payloadData.mjpegServerFramerate;
+    const qualityRaw = payloadData.mjpegServerScreenshotQuality;
 
     const scale = scaleRaw == null ? appiumSettings.scale : clampAppiumSetting(scaleRaw, 30, 100, appiumSettings.scale);
     const fps = fpsRaw == null ? appiumSettings.fps : clampAppiumSetting(fpsRaw, 1, 60, appiumSettings.fps);
