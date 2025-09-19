@@ -3,6 +3,7 @@ import { reactive } from 'vue';
 const DEFAULT_TIMEOUT = 20000;
 const RECONNECT_BASE = 1500;
 const RECONNECT_MAX = 15000;
+const ENV_DEFAULT_WS_URL = (import.meta.env.VITE_DEFAULT_WS_URL || '').trim();
 
 function resolveWsUrl() {
   try {
@@ -18,11 +19,25 @@ function resolveWsUrl() {
       }
       return proto + '//' + explicit;
     }
-    const host = params.get('ws_host') || window.location.hostname || '127.0.0.1';
-    const port = params.get('ws_port') || '8765';
+    const hostParam = params.get('ws_host');
+    const portParam = params.get('ws_port');
+    if (hostParam || portParam) {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = hostParam || window.location.hostname || '127.0.0.1';
+      const port = portParam || '8765';
+      return `${proto}//${host}:${port}`;
+    }
+    if (ENV_DEFAULT_WS_URL) {
+      return ENV_DEFAULT_WS_URL;
+    }
+    const host = window.location.hostname || '127.0.0.1';
+    const port = '8765';
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${proto}//${host}:${port}`;
   } catch (_err) {
+    if (ENV_DEFAULT_WS_URL) {
+      return ENV_DEFAULT_WS_URL;
+    }
     const proto = typeof window !== 'undefined' && window.location && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = typeof window !== 'undefined' && window.location && window.location.hostname ? window.location.hostname : '127.0.0.1';
     return `${proto}//${host}:8765`;
