@@ -1,6 +1,12 @@
 // WebSocket proxy client for front-end ↔ server communication
 (function () {
-  const DEFAULT_TIMEOUT = 20000; // ms
+  const DEFAULT_TIMEOUT = 60000; // ms
+  const TYPE_TIMEOUTS = {
+    'appium.session.create': 240000,
+    'appium.exec.mobile': 120000,
+    'appium.actions.execute': 120000,
+    'appium.settings.apply': 60000,
+  };
   const RECONNECT_BASE = 1500;
   const RECONNECT_MAX = 15000;
 
@@ -53,6 +59,27 @@
     listeners.forEach((fn) => {
       try { fn(newStatus); } catch (_e) { /* ignore listener errors */ }
     });
+  }
+
+  function normalizeTimeout(value) {
+    if (value == null) return null;
+    if (value === Infinity) return 0;
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    if (num <= 0) return 0;
+    return num;
+  }
+
+  function resolveTimeout(type, override) {
+    const explicit = normalizeTimeout(override);
+    if (explicit != null) {
+      return explicit;
+    }
+    const fallback = normalizeTimeout(TYPE_TIMEOUTS[type]);
+    if (fallback != null) {
+      return fallback;
+    }
+    return DEFAULT_TIMEOUT;
   }
 
   function ensureConnection() {
@@ -125,11 +152,15 @@
     try {
       state.socket.send(JSON.stringify(entry.message));
       entry.sentAt = Date.now();
-      entry.timeoutHandle = window.setTimeout(() => {
-        if (!state.pending.has(entry.id)) return;
-        state.pending.delete(entry.id);
-        entry.reject(new Error('Request timed out'));
-      }, entry.timeout);
+      if (entry.timeout > 0) {
+        entry.timeoutHandle = window.setTimeout(() => {
+          if (!state.pending.has(entry.id)) return;
+          state.pending.delete(entry.id);
+          entry.reject(new Error('Request timed out'));
+        }, entry.timeout);
+      } else {
+        entry.timeoutHandle = null;
+      }
     } catch (err) {
       console.error('[ws-proxy] send failed, requeueing', err);
       state.queue.unshift(entry);
@@ -201,7 +232,7 @@
       return Promise.reject(new Error('Message type must be a non-empty string'));
     }
     const opts = options || {};
-    const timeout = typeof opts.timeout === 'number' ? Math.max(opts.timeout, 1) : DEFAULT_TIMEOUT;
+    const timeout = resolveTimeout(type, opts.timeout);
     const id = nextId();
     const message = { id, type, payload: payload === undefined ? null : payload };
 
