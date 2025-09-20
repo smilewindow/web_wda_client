@@ -16,6 +16,11 @@ RTMP_PASS = os.environ.get("RTMP_PUSH_PASS", "s3cret")
 ENABLE_PUSH = os.environ.get("ENABLE_STREAM_PUSH", "true").lower() in {"1", "true", "yes", "y"}
 
 
+_STREAM_READER_LIMIT = 4 * 1024 * 1024  # 4MB
+_STREAM_READ_CHUNK = 64 * 1024
+_STREAM_LOG_MAX_SEGMENT = 512 * 1024
+
+
 class _StreamState:
     __slots__ = ("process", "task")
 
@@ -128,6 +133,7 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                limit=_STREAM_READER_LIMIT,
             )
         except FileNotFoundError:
             core.logger.error("ffmpeg executable not found: %s", FFMPEG_BIN)
@@ -208,14 +214,36 @@ async def _pump_logs(
         nonlocal log_file
         if stream is None:
             return
-        while True:
-            line = await stream.readline()
-            if not line:
-                break
-            text = line.decode(errors="ignore").rstrip()
+        buffer = bytearray()
+
+        def _emit(raw: bytes, *, truncated: bool = False) -> None:
+            text = raw.decode(errors="ignore").rstrip()
+            if truncated:
+                text = f"{text} [truncated]"
             core.logger.debug("[ffmpeg %s %s] %s", udid, prefix, text)
             if log_file:
                 log_file.write(f"{datetime.now().isoformat()} [{prefix}] {text}\n")
+
+        while True:
+            chunk = await stream.read(_STREAM_READ_CHUNK)
+            if not chunk:
+                if buffer:
+                    _emit(bytes(buffer))
+                break
+            buffer.extend(chunk)
+
+            while True:
+                newline_index = buffer.find(b"\n")
+                if newline_index == -1:
+                    if len(buffer) >= _STREAM_LOG_MAX_SEGMENT:
+                        segment = bytes(buffer[:_STREAM_LOG_MAX_SEGMENT])
+                        del buffer[:_STREAM_LOG_MAX_SEGMENT]
+                        _emit(segment, truncated=True)
+                    break
+
+                line = bytes(buffer[:newline_index])
+                del buffer[: newline_index + 1]
+                _emit(line)
 
     try:
         await asyncio.gather(_read(proc.stdout, "stdout"), _read(proc.stderr, "stderr"))
