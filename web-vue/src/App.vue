@@ -387,17 +387,41 @@ const AP_BASE = 'http://127.0.0.1:4723';
 setLS('ap.base', AP_BASE);
 
 const apSessionId = ref((getLS('ap.sid', '') || '').trim());
-watch(apSessionId, (val) => {
+watch(apSessionId, (val, prevVal) => {
   const trimmed = (val || '').trim();
   if (trimmed !== val) {
     apSessionId.value = trimmed;
     return;
   }
+
+  const prevTrimmed = (prevVal || '').trim();
+
   if (trimmed) {
     setLS('ap.sid', trimmed);
   } else {
-    try { LS.removeItem('ap.sid'); } catch (_err) { setLS('ap.sid', ''); }
+    try {
+      LS.removeItem('ap.sid');
+    } catch (_err) {
+      setLS('ap.sid', '');
+    }
   }
+
+  if (trimmed === prevTrimmed) {
+    return;
+  }
+
+  if (!trimmed) {
+    streamReady.value = false;
+    updateCursor();
+    mjpegSrc.value = '';
+    webrtcSrc.value = '';
+    applyStreamMode();
+    return;
+  }
+
+  applyStreamMode();
+  fetchDeviceInfo();
+  refreshAppiumSettingsFromBackend();
 });
 
 const appiumSettings = reactive({
