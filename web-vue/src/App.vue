@@ -708,7 +708,6 @@ function appendGestLog(line) {
 function ev(type, payload) {
   const line = payload ? `${type}: ${JSON.stringify(payload)}` : type;
   appendGestLog(line);
-  try { console.log('[GEST]', line); } catch (_err) {}
 }
 
 function logDebug() {}
@@ -1352,7 +1351,7 @@ function setupGestureRecognizer() {
 
   function setupInteractHandlers() {
     if (typeof interact === 'undefined') {
-      console.warn('[GEST] interact.js not ready');
+      appendGestLog('[GEST] interact.js not ready');
       return;
     }
     try {
@@ -1466,7 +1465,8 @@ function setupGestureRecognizer() {
           clearPressTimer();
         });
     } catch (err) {
-      console.warn('[GEST] interact setup error', err);
+      const detail = err instanceof Error ? `${err.message}` : `${err}`;
+      appendGestLog(`[GEST] interact setup error: ${detail}`);
     }
   }
 

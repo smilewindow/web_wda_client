@@ -272,6 +272,13 @@ def _prepare_ffmpeg_log_path(udid: str, session_id: str) -> Optional[Path]:
         core.logger.exception("Failed to ensure ffmpeg log directory %s", log_dir)
         return None
 
+    for entry in list(log_dir.glob("*.log")):
+        try:
+            if entry.is_file():
+                entry.unlink()
+        except OSError:
+            core.logger.exception("Failed to remove old ffmpeg log %s", entry)
+
     safe_udid = _sanitize_for_filename(udid) or "unknown_udid"
     safe_session = _sanitize_for_filename(session_id) or "unknown_session"
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
