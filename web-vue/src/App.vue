@@ -899,6 +899,10 @@ function describeWsError(err) {
 async function sendProxyRequest(messageType, payload, actionLabel, opts = {}) {
   const options = opts || {};
   const skipSelfHeal = !!options.skipSelfHeal;
+  const requestTimeout = options.timeout;
+  const wsSendOptions = (requestTimeout === undefined || requestTimeout === null)
+    ? undefined
+    : { timeout: requestTimeout };
   const isExec = messageType === 'appium.exec.mobile';
   const isActions = messageType === 'appium.actions.execute';
   const scriptName = (isExec && payload && typeof payload.script === 'string') ? String(payload.script) : '';
@@ -906,7 +910,7 @@ async function sendProxyRequest(messageType, payload, actionLabel, opts = {}) {
 
   try {
     logDebug('ws-request', actionLabel, messageType, payload);
-    const resp = await wsProxy.send(messageType, payload);
+    const resp = await wsProxy.send(messageType, payload, wsSendOptions);
     const statusCode = typeof resp.status === 'number' ? resp.status : 0;
     const ms = Math.round(performance.now() - t0);
     if (isExec) { ev('req', { script: scriptName || '(unknown)', ms, status: statusCode }); }
@@ -921,14 +925,17 @@ async function sendProxyRequest(messageType, payload, actionLabel, opts = {}) {
           const createResp = await wsProxy.send('appium.session.create', {
             base: baseLS,
             udid,
-          });
+          }, wsSendOptions);
           const data = createResp.data || {};
           const newSid = (createResp.ok && data.sessionId) ? String(data.sessionId) : '';
           if (newSid) {
             setSessionId(newSid);
             toast('已自动重建会话，正在重试操作…', 'ok');
             const nextPayload = Object.assign({}, payload || {}, { sessionId: newSid });
-            return await sendProxyRequest(messageType, nextPayload, actionLabel, { skipSelfHeal: true });
+            return await sendProxyRequest(messageType, nextPayload, actionLabel, {
+              ...options,
+              skipSelfHeal: true,
+            });
           }
         }
       } catch (_err) {}

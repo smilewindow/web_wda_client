@@ -1,6 +1,12 @@
 import { reactive } from 'vue';
 
-const DEFAULT_TIMEOUT = 20000;
+const DEFAULT_TIMEOUT = 60000;
+const TYPE_TIMEOUTS = {
+  'appium.session.create': 240000,
+  'appium.exec.mobile': 120000,
+  'appium.actions.execute': 120000,
+  'appium.settings.apply': 60000,
+};
 const RECONNECT_BASE = 1500;
 const RECONNECT_MAX = 15000;
 const ENV_DEFAULT_WS_URL = (import.meta.env.VITE_DEFAULT_WS_URL || '').trim();
@@ -42,6 +48,27 @@ function resolveWsUrl() {
     const host = typeof window !== 'undefined' && window.location && window.location.hostname ? window.location.hostname : '127.0.0.1';
     return `${proto}//${host}:8765`;
   }
+}
+
+function normalizeTimeout(value) {
+  if (value == null) return null;
+  if (value === Infinity) return 0;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  if (num <= 0) return 0;
+  return num;
+}
+
+function resolveTimeout(type, override) {
+  const explicit = normalizeTimeout(override);
+  if (explicit != null) {
+    return explicit;
+  }
+  const fallback = normalizeTimeout(TYPE_TIMEOUTS[type]);
+  if (fallback != null) {
+    return fallback;
+  }
+  return DEFAULT_TIMEOUT;
 }
 
 export function createWsProxy(initialUrl) {
@@ -212,11 +239,15 @@ export function createWsProxy(initialUrl) {
     try {
       socket.send(JSON.stringify(entry.message));
       entry.sentAt = Date.now();
-      entry.timeoutHandle = window.setTimeout(() => {
-        if (!pending.has(entry.id)) return;
-        pending.delete(entry.id);
-        entry.reject(new Error('Request timed out'));
-      }, entry.timeout);
+      if (entry.timeout > 0) {
+        entry.timeoutHandle = window.setTimeout(() => {
+          if (!pending.has(entry.id)) return;
+          pending.delete(entry.id);
+          entry.reject(new Error('Request timed out'));
+        }, entry.timeout);
+      } else {
+        entry.timeoutHandle = null;
+      }
     } catch (err) {
       console.error('[ws-proxy] send failed, requeueing', err);
       queue.unshift(entry);
@@ -236,7 +267,7 @@ export function createWsProxy(initialUrl) {
     const entry = {
       id: message.id,
       message,
-      timeout: typeof options.timeout === 'number' ? options.timeout : DEFAULT_TIMEOUT,
+      timeout: resolveTimeout(type, options.timeout),
     };
     const promise = new Promise((resolve, reject) => {
       entry.resolve = resolve;
