@@ -87,8 +87,6 @@
             v-model="w3cTune"
             style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)"
           >
-            <option value="A">方案A（更猛·稳健）</option>
-            <option value="B">方案B（更猛）</option>
             <option value="fast">fast（原始极速版）</option>
           </select>
         </div>
@@ -361,7 +359,7 @@ watch(showPullConfigPanel, (visible) => {
 
 const w3cTune = ref(readW3CTune());
 watch(w3cTune, (val) => {
-  const normalized = ['A', 'B', 'fast'].includes(val) ? val : 'A';
+  const normalized = val === 'fast' ? val : 'fast';
   if (normalized !== val) {
     w3cTune.value = normalized;
     return;
@@ -556,8 +554,12 @@ function readViewZoom() {
   return clampZoom(getLS('view.zoom.pct', '100'));
 }
 function readW3CTune() {
-  const raw = String(getLS('gest.w3c.tune', 'A') || 'A');
-  return ['A', 'B', 'fast'].includes(raw) ? raw : 'A';
+  const raw = String(getLS('gest.w3c.tune', 'fast') || 'fast');
+  const normalized = raw === 'fast' ? raw : 'fast';
+  if (normalized !== raw) {
+    setLS('gest.w3c.tune', normalized);
+  }
+  return normalized;
 }
 
 function toast(message, intent = 'err', ttl = 3200) {
@@ -1043,14 +1045,7 @@ async function pinchAt(center, scale) {
 }
 
 function getW3CTunePreset() {
-  const k = w3cTune.value;
-  if (k === 'B') {
-    return { MAX_POINTS: 24, MIN_DT: 3, MAX_DT: 100, SPEEDUP: 0.35, FIRST_PAUSE: false, KEEP_ZERO_MOVE_PAUSE: false };
-  }
-  if (k === 'fast') {
-    return { MAX_POINTS: 16, MIN_DT: 5, MAX_DT: 100, SPEEDUP: 0.50, FIRST_PAUSE: false, KEEP_ZERO_MOVE_PAUSE: false };
-  }
-  return { MAX_POINTS: 20, MIN_DT: 4, MAX_DT: 100, SPEEDUP: 0.40, FIRST_PAUSE: false, KEEP_ZERO_MOVE_PAUSE: false };
+  return { MAX_POINTS: 16, MIN_DT: 5, MAX_DT: 100, SPEEDUP: 0.5, FIRST_PAUSE: false, KEEP_ZERO_MOVE_PAUSE: false };
 }
 
 function buildW3CActionsFromTrace(trace) {
