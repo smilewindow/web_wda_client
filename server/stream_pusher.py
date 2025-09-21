@@ -10,10 +10,12 @@ import core
 
 
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
-RTMP_BASE = os.environ.get("RTMP_PUSH_BASE", "rtmp://82.157.94.134:1935/iphone").rstrip("/")
+RTMP_BASE = os.environ.get(
+    "RTMP_PUSH_BASE", "rtmp://82.157.94.134:1935/iphone").rstrip("/")
 RTMP_USER = os.environ.get("RTMP_PUSH_USER", "encoder")
 RTMP_PASS = os.environ.get("RTMP_PUSH_PASS", "s3cret")
-ENABLE_PUSH = os.environ.get("ENABLE_STREAM_PUSH", "true").lower() in {"1", "true", "yes", "y"}
+ENABLE_PUSH = os.environ.get("ENABLE_STREAM_PUSH", "true").lower() in {
+    "1", "true", "yes", "y"}
 
 
 _STREAM_READER_LIMIT = 4 * 1024 * 1024  # 4MB
@@ -73,7 +75,7 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
     #     # MJPEG 输入地址。
     #     "-i", input_url,
     #     # 缩放至 540 宽、限制 15fps、转换为 4:2:0。
-    #     "-vf", "scale=540:-2,fps=15:round=down,format=yuv420p",
+    #     "-vf", "scale=1280:-2,fps=24:round=down,format=yuv420p",
     #     # 保留原始时间戳，避免补帧。
     #     "-vsync", "passthrough",
     #     # 保持帧率直通模式。
@@ -83,9 +85,9 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
     #     # 告知编码器以实时模式运行。
     #     "-realtime", "1",
     #     # 使用 baseline profile，提高兼容性。
-    #     "-profile:v", "baseline",
+    #     "-profile:v", "high",
     #     # GOP 长度 15 帧（约 1 秒）。
-    #     "-g", "15",
+    #     "-g", "24",
     #     # 目标码率 900kbps。
     #     "-b:v", "900k",
     #     # 峰值码率同样限制在 900kbps。
@@ -101,27 +103,30 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
     #     "-f", "flv",
     #     output_url,
     # ]
+
     cmd = [
         FFMPEG_BIN,
         "-fflags", "nobuffer",
-        "-flags", "low_delay",
         "-use_wallclock_as_timestamps", "1",
-        "-rw_timeout", "15000000",
-        "-reconnect", "1",
-        "-reconnect_at_eof", "1",
-        "-reconnect_streamed", "1",
-        "-reconnect_on_network_error", "1",
-        "-reconnect_delay_max", "5",
         "-f", "mjpeg",
-        "-r", "15",
         "-i", input_url,
-        "-vf", "fps=15,scale=540:-2,format=yuv420p",
-        "-c:v", "h264_videotoolbox",
-        "-profile:v", "baseline",
-        "-g", "30",
-        "-b:v", "900k",
-        "-maxrate", "950k",
-        "-bufsize", "1900k",
+        # MJPEG 全范围 -> 电视范围，先做色域与缩放
+        "-sws_flags", "lanczos+accurate_rnd+full_chroma_int",
+        "-vf", "fps=25,scale=720:-2,scale=in_range=pc:out_range=tv,format=yuv420p",
+
+        "-c:v", "libx264",
+        "-preset", "veryfast",        # CPU 紧张可试 ultrafast；足够则换 fast/medium 提质
+        "-tune", "zerolatency",
+        "-profile:v", "high",
+        "-g", "50",                   # 25fps -> 2s 一个 GOP
+        "-x264-params", "bframes=0:keyint=50:min-keyint=50",
+        "-crf", "18",
+        # 标注 BT.709，很多播放器更稳
+        "-color_range", "tv",
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
+        "-colorspace", "bt709",
+
         "-f", "flv",
         output_url,
     ]
@@ -207,7 +212,8 @@ async def _pump_logs(
         try:
             log_file = log_path.open("a", encoding="utf-8", buffering=1)
         except OSError:
-            core.logger.exception("Failed to open ffmpeg log file %s", log_path)
+            core.logger.exception(
+                "Failed to open ffmpeg log file %s", log_path)
             log_file = None
 
     async def _read(stream, prefix):
@@ -222,7 +228,8 @@ async def _pump_logs(
                 text = f"{text} [truncated]"
             core.logger.debug("[ffmpeg %s %s] %s", udid, prefix, text)
             if log_file:
-                log_file.write(f"{datetime.now().isoformat()} [{prefix}] {text}\n")
+                log_file.write(
+                    f"{datetime.now().isoformat()} [{prefix}] {text}\n")
 
         while True:
             chunk = await stream.read(_STREAM_READ_CHUNK)
@@ -269,7 +276,8 @@ def _prepare_ffmpeg_log_path(udid: str, session_id: str) -> Optional[Path]:
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
-        core.logger.exception("Failed to ensure ffmpeg log directory %s", log_dir)
+        core.logger.exception(
+            "Failed to ensure ffmpeg log directory %s", log_dir)
         return None
 
     safe_udid = _sanitize_for_filename(udid) or "unknown_udid"

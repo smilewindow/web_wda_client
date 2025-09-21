@@ -710,7 +710,6 @@ function appendGestLog(line) {
 function ev(type, payload) {
   const line = payload ? `${type}: ${JSON.stringify(payload)}` : type;
   appendGestLog(line);
-  try { console.log('[GEST]', line); } catch (_err) {}
 }
 
 function logDebug() {}
