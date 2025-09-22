@@ -4,8 +4,10 @@ html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:var(--font)}
 #app{min-height:100%}
 #wrap{display:flex;justify-content:center;align-items:flex-start;min-height:100%;overflow:auto;padding:20px 0}
-#phone{position:relative;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45);background:#000}
+
 :root{ --view-max-w:99vw; --view-max-h:calc(100vh - 96px); }
+#phone{position:relative;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45);background:#000;cursor:auto}
+#phone.stream-ready{cursor:pointer}
 #stream{display:block;width:100%;height:100%;object-fit:contain;background:#000}
 #webrtc{display:block;width:100%;height:100%;background:#000;border:0}
 #overlay{position:absolute;left:0;top:0;pointer-events:auto;touch-action:none}

@@ -48,10 +48,6 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
         query = urlencode(credentials)
         output_url = output_url + ("&" if "?" in output_url else "?") + query
 
-    log_path = _prepare_ffmpeg_log_path(udid, session_id)
-    if log_path:
-        core.logger.info("ffmpeg log file: %s", log_path)
-
     # cmd = [
     #     FFMPEG_BIN,
     #     # 取消输入缓冲，降低整体延迟。
@@ -106,28 +102,55 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
 
     cmd = [
         FFMPEG_BIN,
+        # 取消输入缓冲，降低整体延迟
         "-fflags", "nobuffer",
+        # 使用系统时钟作为时间戳，保持实时性
         "-use_wallclock_as_timestamps", "1",
+        # 读取超时设置为 10 秒
+        "-rw_timeout", "10000000",  # 10 second timeout
+        # 打开断线重连开关
+        "-reconnect", "1",
+        # 针对流媒体与网络错误启用重连
+        "-reconnect_streamed", "1",
+        # 指定输入为 MJPEG
         "-f", "mjpeg",
+        # MJPEG 输入地址
         "-i", input_url,
-        # MJPEG 全范围 -> 电视范围，先做色域与缩放
+        # 使用高质量缩放算法和完整色度处理
         "-sws_flags", "lanczos+accurate_rnd+full_chroma_int",
+        # 视频滤镜：限制25fps、缩放至720宽、PC转TV色彩范围、转换为YUV420格式
         "-vf", "fps=25,scale=720:-2,scale=in_range=pc:out_range=tv,format=yuv420p",
-
+        # 使用软件H.264编码器
         "-c:v", "libx264",
-        "-preset", "veryfast",        # CPU 紧张可试 ultrafast；足够则换 fast/medium 提质
+        # 编码预设：速度优先，牺牲一定画质换取低延迟
+        "-preset", "veryfast",
+        # 零延迟调优：优化编码参数以降低延迟
         "-tune", "zerolatency",
+        # 使用High配置文件，提高压缩效率
         "-profile:v", "high",
-        "-g", "50",                   # 25fps -> 2s 一个 GOP
+        # GOP长度50帧（约2秒）
+        "-g", "50",
+        # x264编码器参数：关闭B帧、固定GOP长度
         "-x264-params", "bframes=0:keyint=50:min-keyint=50",
+        # 质量因子18，高质量设置（数值越低质量越好）
         "-crf", "18",
-        # 标注 BT.709，很多播放器更稳
+        # 色彩范围：TV范围（16-235）
         "-color_range", "tv",
+        # 色彩原色：BT.709标准
         "-color_primaries", "bt709",
+        # 色彩传输特性：BT.709伽马曲线
         "-color_trc", "bt709",
+        # 色彩空间：BT.709
         "-colorspace", "bt709",
-
+        # RTMP采用直播模式
+        "-rtmp_live", "live",
+        # RTMP缓冲区大小100ms，降低延迟
+        "-rtmp_buffer", "100",
+        # 禁止写入时长和文件大小元数据
+        "-flvflags", "no_duration_filesize",
+        # 输出格式为FLV
         "-f", "flv",
+        # RTMP输出地址
         output_url,
     ]
 
@@ -148,7 +171,7 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
             return str(exc)
 
         reader_task = asyncio.create_task(
-            _pump_logs(udid, proc, log_path),
+            _pump_logs(udid, proc),
             name=f"ffmpeg-log-{udid}",
         )
         _STREAMS[udid] = _StreamState(proc, reader_task)
@@ -160,6 +183,8 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
             output_url,
             proc.pid,
         )
+        # Log the full command for debugging
+        core.logger.debug("ffmpeg command: %s", " ".join(cmd))
     return None
 
 
@@ -205,19 +230,9 @@ async def _stop_stream_unlocked(udid: str) -> None:
 async def _pump_logs(
     udid: str,
     proc: asyncio.subprocess.Process,
-    log_path: Optional[Path] = None,
 ) -> None:
-    log_file = None
-    if log_path:
-        try:
-            log_file = log_path.open("a", encoding="utf-8", buffering=1)
-        except OSError:
-            core.logger.exception(
-                "Failed to open ffmpeg log file %s", log_path)
-            log_file = None
 
     async def _read(stream, prefix):
-        nonlocal log_file
         if stream is None:
             return
         buffer = bytearray()
@@ -227,9 +242,6 @@ async def _pump_logs(
             if truncated:
                 text = f"{text} [truncated]"
             core.logger.debug("[ffmpeg %s %s] %s", udid, prefix, text)
-            if log_file:
-                log_file.write(
-                    f"{datetime.now().isoformat()} [{prefix}] {text}\n")
 
         while True:
             chunk = await stream.read(_STREAM_READ_CHUNK)
@@ -254,10 +266,18 @@ async def _pump_logs(
 
     try:
         await asyncio.gather(_read(proc.stdout, "stdout"), _read(proc.stderr, "stderr"))
-        await proc.wait()
+        return_code = await proc.wait()
+        if return_code != 0:
+            core.logger.error("ffmpeg process exited with code %d for udid=%s", return_code, udid)
+        else:
+            core.logger.info("ffmpeg process completed successfully for udid=%s", udid)
+    except asyncio.CancelledError:
+        core.logger.debug("ffmpeg log pump cancelled for udid=%s", udid)
+        raise
+    except Exception:
+        core.logger.exception("Error in ffmpeg log pump for udid=%s", udid)
     finally:
-        if log_file:
-            log_file.close()
+        pass
 
 
 def _build_mjpeg_url(base_url: str, port: int) -> str:
@@ -267,30 +287,4 @@ def _build_mjpeg_url(base_url: str, port: int) -> str:
     return f"{scheme}://{host}:{port}"
 
 
-def _prepare_ffmpeg_log_path(udid: str, session_id: str) -> Optional[Path]:
-    base_dir = os.environ.get("FFMPEG_LOG_DIR")
-    if base_dir:
-        log_dir = Path(base_dir).expanduser()
-    else:
-        log_dir = Path(__file__).resolve().parent / "logs" / "ffmpeg"
-    try:
-        log_dir.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        core.logger.exception(
-            "Failed to ensure ffmpeg log directory %s", log_dir)
-        return None
 
-    safe_udid = _sanitize_for_filename(udid) or "unknown_udid"
-    safe_session = _sanitize_for_filename(session_id) or "unknown_session"
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return log_dir / f"{safe_udid}-{safe_session}-{timestamp}.log"
-
-
-def _sanitize_for_filename(value: Optional[str]) -> str:
-    if not value:
-        return ""
-    cleaned = [
-        ch if ch.isalnum() or ch in {"-", "_", "."} else "_"
-        for ch in value
-    ]
-    return "".join(cleaned).strip("_")

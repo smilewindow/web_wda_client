@@ -571,10 +571,14 @@ function hasAppiumSession() {
 }
 
 function updateCursor() {
-  const cur = streamReady.value ? 'pointer' : 'auto';
-  [canvasRef.value, streamImgRef.value, webrtcRef.value, phoneRef.value].forEach((el) => {
-    if (el) el.style.cursor = cur;
-  });
+  const phoneEl = phoneRef.value;
+  if (!phoneEl) return;
+
+  if (streamReady.value) {
+    phoneEl.classList.add('stream-ready');
+  } else {
+    phoneEl.classList.remove('stream-ready');
+  }
 }
 
 function getDeviceAspect() {
@@ -659,6 +663,8 @@ function updateDisplayLayout() {
     }
   } catch (_err) {}
   resizeOverlay();
+  // Ensure cursor is updated after layout changes
+  updateCursor();
 }
 
 function resizeOverlay() {
