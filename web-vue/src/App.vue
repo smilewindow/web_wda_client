@@ -139,7 +139,7 @@
           <h5>{{ device.name || '未知设备' }} ({{ device.udid || '无 UDID' }})</h5>
           <div class="kv">系统: {{ device.osVersion || '-' }} | 型号: {{ device.model || '-' }} | 连接: {{ device.connection || '未知' }}</div>
           <div class="device-actions">
-            <button class="btn" @click="createSessionWithUdid(device.udid || '')">创建会话</button>
+            <button class="btn" @click="createSessionWithUdid(device.udid || '', device.osVersion || '')">创建会话</button>
           </div>
         </div>
       </div>
@@ -927,11 +927,13 @@ async function sendProxyRequest(messageType, payload, actionLabel, opts = {}) {
       try {
         const baseLS = String(getLS('ap.base', '') || '').trim();
         const udid = String(getLS('ap.udid', '') || '').trim();
+        const osVersionLS = String(getLS('ap.osVersion', '') || '').trim();
         if (baseLS && udid) {
           toast('检测到会话失效，正在自动重建…', 'err');
           const createResp = await wsProxy.send('appium.session.create', {
             base: baseLS,
             udid,
+            osVersion: osVersionLS || undefined,
           }, wsSendOptions);
           const data = createResp.data || {};
           const newSid = (createResp.ok && data.sessionId) ? String(data.sessionId) : '';
@@ -1220,9 +1222,10 @@ async function applyAppiumSettings() {
   }
 }
 
-async function createSessionWithUdid(rawUdid) {
+async function createSessionWithUdid(rawUdid, rawOsVersion) {
   const base = AP_BASE;
   const udid = String(rawUdid || '').trim();
+  const osVersion = String(rawOsVersion || '').trim();
   if (!udid) {
     toast('该设备缺少 UDID，无法创建会话。', 'err');
     return;
@@ -1231,6 +1234,7 @@ async function createSessionWithUdid(rawUdid) {
     const resp = await wsProxy.send('appium.session.create', {
       base,
       udid,
+      osVersion: osVersion || undefined,
       wdaLocalPort: 8100,
       mjpegServerPort: 9100,
       bundleId: 'com.apple.Preferences',
@@ -1240,6 +1244,8 @@ async function createSessionWithUdid(rawUdid) {
     if (resp.ok && data.sessionId) {
       setSessionId(data.sessionId);
       if (udid) setLS('ap.udid', udid);
+      if (osVersion) setLS('ap.osVersion', osVersion);
+      else removeLS('ap.osVersion');
       toast(`会话已创建: ${data.sessionId}`, 'ok');
       streamToastShown.value = false;
       reloadCurrentStream();

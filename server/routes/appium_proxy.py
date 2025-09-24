@@ -104,6 +104,7 @@ async def api_appium_create(payload: Dict[str, Any]):
         else None
     )
     udid = payload.get("udid")
+    os_version_raw = payload.get("osVersion")
     wda_port = int(payload.get("wdaLocalPort", 8100))
     mjpeg_port = int(payload.get("mjpegServerPort", 9100))
     bundle_id = payload.get("bundleId")
@@ -118,13 +119,9 @@ async def api_appium_create(payload: Dict[str, Any]):
         "appium:udid": udid,
         "appium:wdaLocalPort": wda_port,
         "appium:mjpegServerPort": mjpeg_port,
-        # "appium:usePreinstalledWDA": True,
-        "appium:usePreinstalledWDA": False,
+        # "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner-Runner.app", 
+        "appium:usePreinstalledWDA": True,
         "appium:updatedWDABundleId": "net.xuyuqin.WebDriverAgentRunner",
-        "appium:xcodeOrgId": "PKS877DY76",
-        "appium:xcodeSigningId": "Apple Development",
-        # "appium:webDriverAgentUrl": f"http://127.0.0.1:{wda_port}",
-        # "appium:mjpegScreenshotUrl": f"http://127.0.0.1:{mjpeg_port}",
         "appium:useNewWDA": False,
         "appium:wdaLaunchTimeout": 30000,
         "appium:wdaStartupRetries": 2,
@@ -133,6 +130,12 @@ async def api_appium_create(payload: Dict[str, Any]):
         # 让会话永不超时：默认 0（可被前端/调用方通过 newCommandTimeout 覆盖）
         "appium:newCommandTimeout": int(new_cmd_to) if new_cmd_to is not None else 0,
     }
+    if isinstance(os_version_raw, (str, int, float)):
+        os_version = str(os_version_raw).strip()
+    else:
+        os_version = ""
+    if os_version:
+        caps["appium:platformVersion"] = os_version
     # 后端统一追加的优化型能力（不再由前端传入 extraCaps）
     try:
         settings = {
@@ -163,8 +166,6 @@ async def api_appium_create(payload: Dict[str, Any]):
             "acceptAlertButtonSelector": "",
             "animationCoolOffTimeout": 0,
         }
-        # 注意：会话空闲超时应通过 capability `appium:newCommandTimeout` 控制；
-        # settings[newCommandTimeout] 无效，故不在 settings 注入，避免混淆。
         extraCaps: Dict[str, Any] = {}
         # 把 settings 作为 capabilities 注入（关键：appium:settings[<name>] 这种写法）
         for k, v in settings.items():
