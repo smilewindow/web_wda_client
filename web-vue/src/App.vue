@@ -538,6 +538,17 @@ let lastDeviceInfoFetch = 0;
 let discoveryLoadingFlag = false;
 let lastDiscoveryFetch = 0;
 let gestureInteract = null;
+let wheelListener = null;
+const WHEEL_THRESHOLD_PX = 16;
+const WHEEL_MIN_OFFSET_PX = 16;
+const WHEEL_MAX_OFFSET_PX = 140;
+const WHEEL_SCROLL_SCALE = 0.30;
+const WHEEL_MOVE_DURATION_MS = 120;
+const WHEEL_POST_DELAY_MS = 40;
+// const WHEEL_GROUP_DELAY_MS = 28;
+const WHEEL_GROUP_DELAY_MS = 80;
+const WHEEL_COOLDOWN_MS = 160;
+const wheelState = { accum: 0, busy: false, pending: false, lastClient: null, lastRect: null, flushTimer: null, cooldownUntil: 0 };
 
 function clampZoom(n) {
   const num = Number(n);
@@ -1110,6 +1121,29 @@ function buildW3CActionsFromTrace(trace) {
   return actions;
 }
 
+async function sendWheelActions(startPt, endPt, durationMs) {
+  const { base, sid } = getAppiumBaseAndSid();
+  if (!base || !sid) {
+    toast('Appium 通道需要已配置 Base 与 Session', 'err');
+    return;
+  }
+  const actions = [{
+    type: 'pointer',
+    id: 'finger1',
+    parameters: { pointerType: 'touch' },
+    actions: [
+      { type: 'pointerMove', duration: 0, origin: 'viewport', x: Math.round(startPt.x), y: Math.round(startPt.y) },
+      { type: 'pointerDown', button: 0 },
+      { type: 'pointerMove', duration: Math.max(30, Math.round(durationMs || WHEEL_MOVE_DURATION_MS)), origin: 'pointer', x: Math.round(endPt.x - startPt.x), y: Math.round(endPt.y - startPt.y) },
+      { type: 'pointerUp', button: 0 },
+    ],
+  }];
+  await sendProxyRequest('appium.actions.execute', { base, sessionId: sid, actions }, 'wheel-scroll');
+  if (WHEEL_POST_DELAY_MS > 0) {
+    await new Promise((resolve) => setTimeout(resolve, WHEEL_POST_DELAY_MS));
+  }
+}
+
 async function sendW3CTrace(trace) {
   const { base, sid } = getAppiumBaseAndSid();
   if (!base || !sid) {
@@ -1331,6 +1365,140 @@ function setupGestureRecognizer() {
   let dragStarted = false;
   let dragTrace = [];
   let currRect = null;
+
+  wheelState.accum = 0;
+  wheelState.busy = false;
+  wheelState.pending = false;
+  wheelState.lastClient = null;
+  wheelState.lastRect = null;
+  wheelState.cooldownUntil = 0;
+  clearWheelTimer();
+
+  if (wheelListener) {
+    try { canvas.removeEventListener('wheel', wheelListener); } catch (_err) {}
+  }
+
+  function clearWheelTimer() {
+    if (wheelState.flushTimer) {
+      try { clearTimeout(wheelState.flushTimer); } catch (_err) {}
+      wheelState.flushTimer = null;
+    }
+  }
+
+  function queueWheelDispatch() {
+    clearWheelTimer();
+    const needDispatch = Math.abs(wheelState.accum) >= WHEEL_THRESHOLD_PX;
+    if (!needDispatch) {
+      if (!wheelState.busy) wheelState.pending = false;
+      return;
+    }
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const cooldownRemaining = Math.max(0, Math.ceil(wheelState.cooldownUntil - now));
+    const delay = Math.max(WHEEL_GROUP_DELAY_MS, cooldownRemaining);
+    wheelState.pending = true;
+    wheelState.flushTimer = setTimeout(() => {
+      wheelState.flushTimer = null;
+      if (wheelState.busy) {
+        queueWheelDispatch();
+        return;
+      }
+      if (Math.abs(wheelState.accum) >= WHEEL_THRESHOLD_PX) {
+        dispatchWheelGesture();
+      } else {
+        wheelState.pending = false;
+      }
+    }, delay);
+  }
+
+  function dispatchWheelGesture() {
+    if (!canvas) return;
+    const rect = wheelState.lastRect || canvas.getBoundingClientRect();
+    if (!rect || rect.width <= 1 || rect.height <= 1) {
+      wheelState.accum = 0;
+      wheelState.pending = false;
+      return;
+    }
+    const client = wheelState.lastClient || {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+    if (!client || !Number.isFinite(client.x) || !Number.isFinite(client.y)) {
+      wheelState.accum = 0;
+      wheelState.pending = false;
+      return;
+    }
+    if (Math.abs(wheelState.accum) < WHEEL_THRESHOLD_PX) {
+      wheelState.pending = false;
+      return;
+    }
+    const direction = wheelState.accum >= 0 ? 1 : -1;
+    const base = Math.abs(wheelState.accum);
+    const scaled = base * WHEEL_SCROLL_SCALE;
+    const domDistance = Math.min(WHEEL_MAX_OFFSET_PX, Math.max(WHEEL_MIN_OFFSET_PX, scaled));
+    const accumValue = wheelState.accum;
+    if (!Number.isFinite(domDistance) || domDistance <= 0) {
+      wheelState.accum = 0;
+      wheelState.pending = false;
+      return;
+    }
+    const clientOffset = -direction * domDistance;
+    const startPt = toDevicePtFast(client.x, client.y, rect);
+    const endPt = toDevicePtFast(client.x, client.y + clientOffset, rect);
+    const start = { x: Math.round(startPt.x), y: Math.round(startPt.y) };
+    const end = { x: Math.round(endPt.x), y: Math.round(endPt.y) };
+
+    wheelState.pending = false;
+    wheelState.accum = 0;
+    wheelState.busy = true;
+    const nowTs = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    wheelState.cooldownUntil = nowTs + WHEEL_COOLDOWN_MS;
+    logDebug('wheel-gesture', { direction, accum: accumValue, domOffset: clientOffset, start, end });
+    void (async () => {
+      try {
+        await sendWheelActions(start, end, WHEEL_MOVE_DURATION_MS);
+      } catch (err) {
+        logDebug('wheel-gesture-error', err);
+      } finally {
+        wheelState.busy = false;
+        if (Math.abs(wheelState.accum) >= WHEEL_THRESHOLD_PX) {
+          if (!wheelState.flushTimer) {
+            queueWheelDispatch();
+          } else {
+            wheelState.pending = true;
+          }
+        } else if (!wheelState.flushTimer) {
+          wheelState.pending = false;
+        }
+      }
+    })();
+  }
+
+  wheelListener = (event) => {
+    if (!canvas) return;
+    if (event.ctrlKey) return;
+    if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+
+    const rect = currRect || canvas.getBoundingClientRect();
+    if (!rect || rect.width <= 1 || rect.height <= 1) return;
+    const withinX = event.clientX >= rect.left && event.clientX <= rect.right;
+    const withinY = event.clientY >= rect.top && event.clientY <= rect.bottom;
+    if (!withinX || !withinY) return;
+
+    event.preventDefault();
+    if (typeof event.stopPropagation === 'function') event.stopPropagation();
+    wheelState.lastRect = rect;
+    wheelState.lastClient = { x: event.clientX, y: event.clientY };
+    wheelState.accum += event.deltaY;
+    const dir = wheelState.accum >= 0 ? 1 : -1;
+    const maxAccum = WHEEL_MAX_OFFSET_PX / WHEEL_SCROLL_SCALE;
+    if (Math.abs(wheelState.accum) > maxAccum) {
+      wheelState.accum = dir * maxAccum;
+    }
+
+    queueWheelDispatch();
+  };
+
+  canvas.addEventListener('wheel', wheelListener, { passive: false });
 
   function setMode(text) {
     if (modePill) modePill.textContent = text;
@@ -1574,7 +1742,21 @@ onBeforeUnmount(() => {
   if (canvas) {
     canvas.removeEventListener('pointermove', pointerMoveHandler);
     canvas.removeEventListener('contextmenu', preventContextMenu);
+    if (wheelListener) {
+      canvas.removeEventListener('wheel', wheelListener);
+      wheelListener = null;
+    }
     try { interact(canvas).unset(); } catch (_err) {}
+  }
+  wheelState.accum = 0;
+  wheelState.busy = false;
+  wheelState.pending = false;
+  wheelState.lastClient = null;
+  wheelState.lastRect = null;
+  wheelState.cooldownUntil = 0;
+  if (wheelState.flushTimer) {
+    try { clearTimeout(wheelState.flushTimer); } catch (_err) {}
+    wheelState.flushTimer = null;
   }
   try {
     if (window.__setAppSessionId === setSessionId) delete window.__setAppSessionId;
