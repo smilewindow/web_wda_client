@@ -539,6 +539,17 @@ let discoveryLoadingFlag = false;
 let lastDiscoveryFetch = 0;
 let gestureInteract = null;
 let wheelListener = null;
+let finalizeDragSession = null;
+
+// 全局拖拽状态（用于支持页外松开）
+let globalDragState = {
+  isDragging: false,
+  startTime: 0,
+  dragStarted: false,
+  dragTrace: [],
+  currRect: null,
+  downClient: { x: 0, y: 0 }
+};
 const WHEEL_THRESHOLD_PX = 16;
 const WHEEL_MIN_OFFSET_PX = 16;
 const WHEEL_MAX_OFFSET_PX = 140;
@@ -1341,8 +1352,84 @@ function toDevicePt(clientX, clientY) {
   return { x: xOnImg * scaleX, y: yOnImg * scaleY, rect };
 }
 
+function clampClientToRect(clientX, clientY, rect) {
+  if (!rect) return { x: clientX, y: clientY };
+  const right = Number.isFinite(rect.right) ? rect.right : (rect.left + (rect.width || 0));
+  const bottom = Number.isFinite(rect.bottom) ? rect.bottom : (rect.top + (rect.height || 0));
+  const clampedX = Math.min(Math.max(clientX, rect.left), right);
+  const clampedY = Math.min(Math.max(clientY, rect.top), bottom);
+  return { x: clampedX, y: clampedY };
+}
+
+function toDevicePtFast(clientX, clientY, rect) {
+  const xOnImg = clientX - rect.left;
+  const yOnImg = clientY - rect.top;
+  const width = rect.width || 1;
+  const height = rect.height || 1;
+  const basisW = devicePt.w || devicePx.w || width;
+  const basisH = devicePt.h || devicePx.h || height;
+  const scaleX = basisW / width;
+  const scaleY = basisH / height;
+  return { x: xOnImg * scaleX, y: yOnImg * scaleY, rect };
+}
+
+// 全局鼠标事件处理函数（用于支持页外松开）
+function handleGlobalMouseUp(e) {
+  if (!globalDragState.isDragging) return;
+
+  logDebug('global-mouseup', { x: e.clientX, y: e.clientY, isDragging: globalDragState.isDragging });
+  if (typeof finalizeDragSession === 'function') {
+    finalizeDragSession({ clientX: e.clientX, clientY: e.clientY, source: 'global' });
+    return;
+  }
+
+  globalDragState.isDragging = false;
+  if (globalDragState.dragStarted) {
+    try {
+      const rect = globalDragState.currRect || getDisplayRect();
+      const endPt = toDevicePtFast(e.clientX, e.clientY, rect);
+      const tr = globalDragState.dragTrace.slice();
+      const dur = performance.now() - (globalDragState.startTime || performance.now());
+      tr.push({ x: endPt.x, y: endPt.y, t: Math.round(dur) });
+      void sendW3CTrace(tr);
+      ev('global-drag-complete', { points: tr.length, duration: Math.round(dur) });
+    } catch (err) {
+      logDebug('global-drag-error', err);
+    }
+  }
+
+  resetGlobalDragState();
+}
+
+function handleGlobalMouseMove(e) {
+  if (!globalDragState.isDragging || !globalDragState.dragStarted) return;
+
+  const rect = globalDragState.currRect || getDisplayRect();
+  const t = Math.round(performance.now() - globalDragState.startTime);
+  const basis = toDevicePtFast(e.clientX, e.clientY, rect);
+  const last = globalDragState.dragTrace.length ? globalDragState.dragTrace[globalDragState.dragTrace.length - 1] : null;
+  const dxs = last ? (basis.x - last.x) : 0;
+  const dys = last ? (basis.y - last.y) : 0;
+
+  if (!last || t - last.t >= 10 || (dxs * dxs + dys * dys) >= 1) {
+    globalDragState.dragTrace.push({ x: basis.x, y: basis.y, t });
+    if (globalDragState.dragTrace.length > 80) globalDragState.dragTrace.splice(1, 1);
+    try { ev('global-drag-sample', { x: Math.round(basis.x), y: Math.round(basis.y), t }); } catch (_err) {}
+  }
+}
+
+function resetGlobalDragState() {
+  globalDragState.isDragging = false;
+  globalDragState.dragStarted = false;
+  globalDragState.dragTrace = [];
+  globalDragState.currRect = null;
+  globalDragState.startTime = 0;
+  globalDragState.downClient = { x: 0, y: 0 };
+}
+
 function setupGestureRecognizer() {
   const canvas = canvasRef.value;
+  finalizeDragSession = null;
   if (!canvas) return;
   if (gestureInteract) {
     try { gestureInteract.unset(); } catch (_err) {}
@@ -1508,21 +1595,85 @@ function setupGestureRecognizer() {
   }
   function getLongPressMs() { return 500; }
   const LONGPRESS_TOTAL_MS = 1200;
-  function toDevicePtFast(clientX, clientY, rect) {
-    const xOnImg = clientX - rect.left;
-    const yOnImg = clientY - rect.top;
-    const width = rect.width || 1;
-    const height = rect.height || 1;
-    const basisW = devicePt.w || devicePx.w || width;
-    const basisH = devicePt.h || devicePx.h || height;
-    const scaleX = basisW / width;
-    const scaleY = basisH / height;
-    return { x: xOnImg * scaleX, y: yOnImg * scaleY, rect };
-  }
   function clearPressTimer() {
     try { if (pressTimer) clearTimeout(pressTimer); } catch (_err) {}
     pressTimer = null;
   }
+
+  const finalizeDrag = ({ clientX, clientY, source = 'interact' } = {}) => {
+    if (!isDown && !dragStarted && !globalDragState.isDragging) {
+      resetGlobalDragState();
+      return;
+    }
+    const now = (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now();
+    const rect = currRect || globalDragState.currRect || getDisplayRect();
+    const startClient = source === 'global' ? (globalDragState.downClient || downClient) : downClient;
+    const resolvedX = typeof clientX === 'number' ? clientX : (startClient?.x ?? rect?.left ?? 0);
+    const resolvedY = typeof clientY === 'number' ? clientY : (startClient?.y ?? rect?.top ?? 0);
+    const devicePtInfo = rect ? toDevicePtFast(resolvedX, resolvedY, rect) : toDevicePt(resolvedX, resolvedY);
+    const detectionClient = rect ? clampClientToRect(resolvedX, resolvedY, rect) : { x: resolvedX, y: resolvedY };
+    const durationAnchor = Number.isFinite(downAt) && downAt > 0 ? downAt : (globalDragState.startTime || now);
+    const dur = Math.max(0, now - durationAnchor);
+
+    clearPressTimer();
+    isDown = false;
+    globalDragState.isDragging = false;
+
+    try {
+      const r = devicePtInfo.rect || rect;
+      if (r && startClient && Number.isFinite(startClient.y)) {
+        const startY = startClient.y - r.top;
+        const endY = detectionClient.y - r.top;
+        const isFromBottom = startY > r.height * 0.90;
+        const movedUpEnough = (startY - endY) > r.height * 0.08;
+        if (isFromBottom && movedUpEnough) {
+          ev('home-swipe', { fromY: Math.round(startY), toY: Math.round(endY) });
+          setMode('home');
+          void pressHome();
+          setMode('idle');
+          longPressTriggered = false;
+          dragStarted = false;
+          dragTrace = [];
+          currRect = null;
+          resetGlobalDragState();
+          return;
+        }
+      }
+    } catch (_err) {}
+
+    if (longPressTriggered && !dragStarted) {
+      // 已处理长按
+    } else if (!dragStarted && dur >= getLongPressMs()) {
+      const durMs = Math.max(getLongPressMs(), Math.round(dur));
+      setMode('longPress');
+      ev('longPress', { at: { x: devicePtInfo.x, y: devicePtInfo.y }, durationMs: durMs });
+      void longPressAt(devicePtInfo.x, devicePtInfo.y, durMs);
+    } else if (!dragStarted && dur <= 250) {
+      setMode('tap');
+      ev('tap', { at: { x: devicePtInfo.x, y: devicePtInfo.y } });
+      void tapAt(devicePtInfo.x, devicePtInfo.y);
+    } else if (dragStarted) {
+      try {
+        const traceSource = (source === 'global' && globalDragState.dragTrace.length) ? globalDragState.dragTrace : dragTrace;
+        const tr = traceSource.slice();
+        tr.push({ x: devicePtInfo.x, y: devicePtInfo.y, t: Math.round(dur) });
+        void sendW3CTrace(tr);
+        if (source === 'global') {
+          ev('global-drag-complete', { points: tr.length, duration: Math.round(dur) });
+        }
+      } catch (err) {
+        logDebug('drag-finalize-error', err);
+      }
+    }
+
+    setMode('idle');
+    longPressTriggered = false;
+    dragStarted = false;
+    dragTrace = [];
+    currRect = null;
+    resetGlobalDragState();
+  };
+  finalizeDragSession = finalizeDrag;
 
   function setupInteractHandlers() {
     if (typeof interact === 'undefined') {
@@ -1572,6 +1723,14 @@ function setupGestureRecognizer() {
             clearPressTimer();
             dragStarted = true;
             setMode('dragging');
+
+            // 初始化全局拖拽状态（用于支持页外松开）
+            globalDragState.isDragging = true;
+            globalDragState.dragStarted = true;
+            globalDragState.startTime = downAt;
+            globalDragState.currRect = currRect;
+            globalDragState.downClient = { ...downClient };
+            globalDragState.dragTrace = dragTrace.slice();
           }
           if (dragStarted) {
             const t = Math.round(performance.now() - downAt);
@@ -1589,55 +1748,7 @@ function setupGestureRecognizer() {
         })
         .on('up', (e) => {
           logDebug('up', { x: e.clientX, y: e.clientY, isDown, dragStarted, longPressTriggered });
-          if (!isDown) return;
-          isDown = false;
-          const rect = currRect || getDisplayRect();
-          const p = toDevicePt(e.clientX, e.clientY);
-          clearPressTimer();
-          const dur = performance.now() - downAt;
-          try {
-            const r = p.rect;
-            const startY = downClient.y - r.top;
-            const endY = e.clientY - r.top;
-            const isFromBottom = startY > r.height * 0.90;
-            const movedUpEnough = (startY - endY) > r.height * 0.08;
-            if (isFromBottom && movedUpEnough) {
-              ev('home-swipe', { fromY: Math.round(startY), toY: Math.round(endY) });
-              setMode('home');
-              void pressHome();
-              setMode('idle');
-              longPressTriggered = false;
-              dragStarted = false;
-              dragTrace = [];
-              currRect = null;
-              clearPressTimer();
-              return;
-            }
-          } catch (_err) {}
-          if (longPressTriggered && !dragStarted) {
-            // already handled
-          } else if (!dragStarted && dur >= getLongPressMs()) {
-            const durMs = Math.max(getLongPressMs(), Math.round(dur));
-            setMode('longPress');
-            ev('longPress', { at: { x: p.x, y: p.y }, durationMs: durMs });
-            void longPressAt(p.x, p.y, durMs);
-          } else if (!dragStarted && dur <= 250) {
-            setMode('tap');
-            ev('tap', { at: { x: p.x, y: p.y } });
-            void tapAt(p.x, p.y);
-          } else if (dragStarted) {
-            try {
-              const tr = dragTrace.slice();
-              tr.push({ x: p.x, y: p.y, t: Math.round(dur) });
-              void sendW3CTrace(tr);
-            } catch (_err) {}
-          }
-          setMode('idle');
-          longPressTriggered = false;
-          dragStarted = false;
-          dragTrace = [];
-          currRect = null;
-          clearPressTimer();
+          finalizeDrag({ clientX: e.clientX, clientY: e.clientY, source: 'interact' });
         });
     } catch (err) {
       console.warn('[GEST] interact setup error', err);
@@ -1689,6 +1800,11 @@ onMounted(() => {
   refreshAppiumSettingsFromBackend();
   wsProxy.ensureConnection();
   window.addEventListener('resize', updateDisplayLayout);
+
+  // 添加全局鼠标事件监听器（用于支持页外松开）
+  window.addEventListener('mouseup', handleGlobalMouseUp);
+  window.addEventListener('mousemove', handleGlobalMouseMove);
+
   const canvas = canvasRef.value;
   if (canvas) {
     canvas.addEventListener('pointermove', pointerMoveHandler);
@@ -1738,6 +1854,12 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateDisplayLayout);
+
+  // 清理全局鼠标事件监听器
+  window.removeEventListener('mouseup', handleGlobalMouseUp);
+  window.removeEventListener('mousemove', handleGlobalMouseMove);
+  finalizeDragSession = null;
+
   const canvas = canvasRef.value;
   if (canvas) {
     canvas.removeEventListener('pointermove', pointerMoveHandler);
@@ -1758,6 +1880,9 @@ onBeforeUnmount(() => {
     try { clearTimeout(wheelState.flushTimer); } catch (_err) {}
     wheelState.flushTimer = null;
   }
+
+  // 清理全局拖拽状态
+  resetGlobalDragState();
   try {
     if (window.__setAppSessionId === setSessionId) delete window.__setAppSessionId;
     if (window.getDisplayRect === getDisplayRect) delete window.getDisplayRect;
