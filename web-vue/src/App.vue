@@ -554,11 +554,10 @@ const WHEEL_THRESHOLD_PX = 16;
 const WHEEL_MIN_OFFSET_PX = 16;
 const WHEEL_MAX_OFFSET_PX = 140;
 const WHEEL_SCROLL_SCALE = 0.30;
-const WHEEL_MOVE_DURATION_MS = 120;
-const WHEEL_POST_DELAY_MS = 40;
-// const WHEEL_GROUP_DELAY_MS = 28;
-const WHEEL_GROUP_DELAY_MS = 80;
-const WHEEL_COOLDOWN_MS = 160;
+const WHEEL_MOVE_DURATION_MS = 90;
+const WHEEL_POST_DELAY_MS = 24;
+const WHEEL_GROUP_DELAY_MS = 75;
+const WHEEL_COOLDOWN_MS = 120;
 const wheelState = { accum: 0, busy: false, pending: false, lastClient: null, lastRect: null, flushTimer: null, cooldownUntil: 0 };
 
 function clampZoom(n) {
