@@ -77,8 +77,7 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
     cmd = [
         FFMPEG_BIN,
         "-hide_banner",
-        # "-loglevel", "warning",
-        "-fflags", "+nobuffer+genpts",
+        "-fflags", "+nobuffer+genpts+discardcorrupt",
         "-use_wallclock_as_timestamps", "1",
         "-reconnect", "1",
         "-reconnect_streamed", "1",
@@ -92,7 +91,7 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
         "-i", input_url,
         "-init_hw_device", "videotoolbox=vt",
         "-filter_hw_device", "vt",
-        "-vf", "fps=25,scale=iw:ih:in_range=pc:out_range=tv,format=nv12,hwupload,scale_vt=720:1560",
+        "-vf", "fps=25,zscale=rangein=full:range=limited:matrix=bt709,format=nv12,hwupload,scale_vt=720:1560",
         "-c:v", "h264_videotoolbox",
         "-profile:v", "main",
         "-realtime", "1",
