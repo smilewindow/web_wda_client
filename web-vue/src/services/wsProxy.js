@@ -91,12 +91,16 @@ export function createWsProxy(initialUrl) {
     return `msg-${Date.now()}-${counter}`;
   }
 
+  function notifyStatusListeners(status, message) {
+    listeners.forEach((fn) => {
+      try { fn(status, message); } catch (_err) {}
+    });
+  }
+
   function setStatus(newStatus) {
     if (state.status === newStatus) return;
     state.status = newStatus;
-    listeners.forEach((fn) => {
-      try { fn(newStatus); } catch (_err) {}
-    });
+    notifyStatusListeners(newStatus, null);
   }
 
   function onStatus(fn) {
@@ -141,9 +145,7 @@ export function createWsProxy(initialUrl) {
     }
     const msgId = message && message.id;
     if (!msgId) {
-      listeners.forEach((fn) => {
-        try { fn(state.status, message); } catch (_err) {}
-      });
+      notifyStatusListeners(state.status, message);
       return;
     }
     const entry = pending.get(msgId);

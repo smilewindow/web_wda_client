@@ -256,6 +256,18 @@ async def client_handler(ws: WebSocketServerProtocol) -> None:
                             "message": "Backend connection lost",
                         },
                     })
+                # inform remaining frontends so they can clean up local state
+                for client_ws, client_info in list(CONNECTED.items()):
+                    if client_info.get("role") == "backend":
+                        continue
+                    await send_json(client_ws, {
+                        "type": "system.backend.disconnected",
+                        "ok": False,
+                        "error": {
+                            "code": "backend_disconnected",
+                            "message": "Backend connection lost",
+                        },
+                    })
         else:
             # remove pending entries associated with this frontend
             to_remove = [rid for rid, fw in PENDING.items() if fw is ws]

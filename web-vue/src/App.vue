@@ -521,9 +521,13 @@ const mobileBusy = ref(false);
 const streamToastShown = ref(false);
 const wsStatus = ref(wsProxy.state.status);
 
-wsProxy.onStatus((status) => {
+wsProxy.onStatus((status, message) => {
   if (typeof status === 'string') {
     wsStatus.value = status;
+  }
+  if (message && message.type === 'system.backend.disconnected') {
+    console.log('后端连接已断开');
+    resetSessionState();
   }
 });
 
@@ -585,6 +589,20 @@ function readW3CTune() {
 
 function toast(message, intent = 'err', ttl = 3200) {
   pushToast(message, intent, ttl);
+}
+
+function resetSessionState() {
+  const hadSession = apSessionId.value.trim().length > 0;
+  if (hadSession) {
+    apSessionId.value = '';
+  }
+  removeLS('ap.sid');
+  streamReady.value = false;
+  mjpegSrc.value = '';
+  webrtcSrc.value = '';
+  discoveryDevices.value = [];
+  discoveryEmptyText.value = `${message}，请稍后重试`;
+  // toast(hadSession ? `${message}，已清除本地会话` : message, 'warn', hadSession ? 3600 : 2600);
 }
 
 function hasAppiumSession() {
