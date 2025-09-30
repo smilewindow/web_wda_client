@@ -74,40 +74,94 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
 
     log_flags = _build_ffmpeg_log_flags()
 
+    # cmd = [
+    #     FFMPEG_BIN,
+    #     "-hide_banner",
+    #     "-fflags", "+nobuffer+genpts+discardcorrupt",
+    #     "-use_wallclock_as_timestamps", "1",
+    #     "-reconnect", "1",
+    #     "-reconnect_streamed", "1",
+    #     "-reconnect_at_eof", "1",
+    #     "-reconnect_on_network_error", "1",
+    #     "-reconnect_delay_max", "5",
+    #     "-rw_timeout", "60000000",
+    #     "-seekable", "0",
+    #     "-thread_queue_size", "1024",
+    #     "-f", "mjpeg",
+    #     "-i", input_url,
+    #     "-init_hw_device", "videotoolbox=vt",
+    #     "-filter_hw_device", "vt",
+    #     "-vf", "fps=25,zscale=rangein=full:range=limited:matrix=bt709,format=nv12,hwupload,scale_vt=720:1560",
+    #     "-c:v", "h264_videotoolbox",
+    #     "-profile:v", "main",
+    #     "-realtime", "1",
+    #     "-b:v", "2500k",
+    #     "-maxrate", "3000k",
+    #     "-bufsize", "5000k",
+    #     "-g", "50",
+    #     "-color_range", "tv",
+    #     "-color_primaries", "bt709",
+    #     "-color_trc", "bt709",
+    #     "-colorspace", "bt709",
+    #     "-rtmp_live", "live",
+    #     "-rtmp_buffer", "100",
+    #     "-flvflags", "no_duration_filesize",
+    #     "-an",
+    #     "-f", "flv",
+    #     output_url,
+    # ]
+
     cmd = [
         FFMPEG_BIN,
-        "-hide_banner",
-        "-fflags", "+nobuffer+genpts+discardcorrupt",
+        # 取消输入缓冲，降低整体延迟
+        "-fflags", "nobuffer",
+        # 使用系统时钟作为时间戳，保持实时性
         "-use_wallclock_as_timestamps", "1",
+        # 读取超时设置为 10 秒
+        "-rw_timeout", "10000000",  # 10 second timeout
+        # 打开断线重连开关
         "-reconnect", "1",
+        # 针对流媒体与网络错误启用重连
         "-reconnect_streamed", "1",
-        "-reconnect_at_eof", "1",
-        "-reconnect_on_network_error", "1",
-        "-reconnect_delay_max", "5",
-        "-rw_timeout", "60000000",
-        "-seekable", "0",
-        "-thread_queue_size", "1024",
+        # 指定输入为 MJPEG
         "-f", "mjpeg",
+        # MJPEG 输入地址
         "-i", input_url,
-        "-init_hw_device", "videotoolbox=vt",
-        "-filter_hw_device", "vt",
-        "-vf", "fps=25,zscale=rangein=full:range=limited:matrix=bt709,format=nv12,hwupload,scale_vt=720:1560",
-        "-c:v", "h264_videotoolbox",
-        "-profile:v", "main",
-        "-realtime", "1",
-        "-b:v", "2500k",
-        "-maxrate", "3000k",
-        "-bufsize", "5000k",
-        "-g", "50",
+        # 使用高质量缩放算法和完整色度处理
+        "-sws_flags", "lanczos+accurate_rnd+full_chroma_int",
+        # 视频滤镜：限制25fps、缩放至720宽、PC转TV色彩范围、转换为YUV420格式
+        "-vf", "fps=30,scale=720:-2,scale=in_range=pc:out_range=tv,format=yuv420p",
+        # 使用软件H.264编码器
+        "-c:v", "libx264",
+        # 编码预设：速度优先，牺牲一定画质换取低延迟
+        "-preset", "veryfast",
+        # 零延迟调优：优化编码参数以降低延迟
+        "-tune", "zerolatency",
+        # 使用High配置文件，提高压缩效率
+        "-profile:v", "high",
+        # GOP长度50帧（约2秒）
+        "-g", "60",
+        # x264编码器参数：关闭B帧、固定GOP长度
+        "-x264-params", "bframes=0:keyint=50:min-keyint=50",
+        # 质量因子18，高质量设置（数值越低质量越好）
+        "-crf", "18",
+        # 色彩范围：TV范围（16-235）
         "-color_range", "tv",
+        # 色彩原色：BT.709标准
         "-color_primaries", "bt709",
+        # 色彩传输特性：BT.709伽马曲线
         "-color_trc", "bt709",
+        # 色彩空间：BT.709
         "-colorspace", "bt709",
+        # RTMP采用直播模式
         "-rtmp_live", "live",
+        # RTMP缓冲区大小100ms，降低延迟
         "-rtmp_buffer", "100",
+        # 禁止写入时长和文件大小元数据
         "-flvflags", "no_duration_filesize",
-        "-an",
+        # 输出格式为FLV
         "-f", "flv",
+        # RTMP输出地址
         output_url,
     ]
 

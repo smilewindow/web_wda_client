@@ -150,7 +150,7 @@ async def api_appium_create(payload: Dict[str, Any]):
             "keyboardPrediction": 0,
             "defaultActiveApplication": "auto",
             "mjpegServerScreenshotQuality": 25,
-            "mjpegServerFramerate": 25,
+            "mjpegServerFramerate": 30,
             "mjpegScalingFactor": 100,
             # "mjpegServerEnableScaling": True,
             # "mjpegServerScreenshotScale": 0.5,
