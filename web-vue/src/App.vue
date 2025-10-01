@@ -4,7 +4,7 @@
 
     <div id="hud">
       <span class="pill" id="hud-size">{{ hudSizeText }}</span>
-      <button class="btn" id="btn-appium" @click="openAppiumPanel">Appium 设置</button>
+      <button class="btn" id="btn-appium" @click="toggleAppiumPanel">Appium 设置</button>
       <button class="btn" id="btn-devices" @click="toggleDevicePanel">设备列表</button>
     </div>
     <div id="hud-controls">
@@ -152,11 +152,14 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } 
 import interact from 'interactjs';
 import ToastContainer from './components/ToastContainer.vue';
 import { wsProxy } from './services/wsProxy';
-import { safeLocalStorage, getLS, setLS, removeLS } from './utils/storage';
+import { getLS, setLS, removeLS } from './utils/storage';
 import { useToastStore } from './stores/toastStore';
 
+import { useHudPanels } from './composables/useHudPanels';
+import { useStreamControls } from './composables/useStreamControls';
+import { useAppiumSession } from './composables/useAppiumSession';
+
 const { pushToast } = useToastStore();
-const LS = safeLocalStorage;
 const isDev = import.meta.env.DEV;
 const isProd = import.meta.env.PROD;
 
@@ -182,82 +185,10 @@ const apiBase = ref(defaultApiBase);
 const webrtcBase = ref(defaultWebrtcBase);
 const defaultWsUrl = wsProxy.state.url;
 
-function trimTrailingSlashes(val) {
-  return typeof val === 'string' ? val.replace(/\/+$/, '') : val;
-}
-
-function resolveWsUrlInput(raw) {
-  const trimmed = (raw || '').trim();
-  if (!trimmed) {
-    return { ok: true, url: defaultWsUrl };
-  }
-  try {
-    let target;
-    if (/^wss?:\/\//i.test(trimmed)) {
-      target = new URL(trimmed);
-    } else if (/^https?:\/\//i.test(trimmed)) {
-      const httpUrl = new URL(trimmed);
-      const proto = httpUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      target = new URL(`${proto}//${httpUrl.host}${httpUrl.pathname}${httpUrl.search}${httpUrl.hash}`);
-    } else {
-      const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      target = new URL(`${wsProto}//${trimmed}`);
-    }
-    if (target.pathname === '/' && !target.search && !target.hash) {
-      return { ok: true, url: `${target.protocol}//${target.host}` };
-    }
-    return { ok: true, url: target.toString() };
-  } catch (err) {
-    return { ok: false, message: err.message || 'invalid url' };
-  }
-}
-
-function resolveWebrtcBaseInput(raw) {
-  const trimmed = (raw || '').trim();
-  if (!trimmed) {
-    return { ok: true, base: defaultWebrtcBase };
-  }
-  try {
-    let target;
-    if (/^https?:\/\//i.test(trimmed)) {
-      target = new URL(trimmed);
-    } else {
-      const httpProto = window.location.protocol === 'https:' ? 'https:' : 'http:';
-      target = new URL(`${httpProto}//${trimmed}`);
-    }
-    const cleanPath = target.pathname.replace(/\/+$/, '');
-    const base = (!cleanPath || cleanPath === '')
-      ? trimTrailingSlashes(`${target.protocol}//${target.host}/iphone`)
-      : trimTrailingSlashes(`${target.protocol}//${target.host}${cleanPath}`);
-    return { ok: true, base };
-  } catch (err) {
-    return { ok: false, message: err.message || 'invalid url' };
-  }
-}
-
-const streamMode = ref(readStreamMode());
-const pendingStreamMode = ref(streamMode.value);
-watch(streamMode, (val) => {
-  setLS('stream.mode', val === 'webrtc' ? 'webrtc' : 'mjpeg');
-  pendingStreamMode.value = val;
-  applyStreamMode();
-});
-
-const viewZoomPct = ref(readViewZoom());
-watch(viewZoomPct, (val) => {
-  const clamped = clampZoom(val);
-  if (clamped !== val) {
-    viewZoomPct.value = clamped;
-    return;
-  }
-  setLS('view.zoom.pct', String(clamped));
-  applyViewZoom(clamped);
-});
-const viewZoomLabel = computed(() => clampZoom(viewZoomPct.value));
-
 const devicePt = reactive({ w: null, h: null });
 const devicePx = reactive({ w: null, h: null });
 const streamReady = ref(false);
+const streamToastShown = ref(false);
 
 const hudSizeText = computed(() => {
   const pt = devicePt.w && devicePt.h ? `pt ${devicePt.w}×${devicePt.h}` : 'pt -×-';
@@ -265,97 +196,126 @@ const hudSizeText = computed(() => {
   return `${pt} | ${px}`;
 });
 
-const showAppiumPanel = ref(false);
-const showDevicePanel = ref(false);
-const showGesturePanel = ref(false);
-const showZoomPanel = ref(false);
-const showStreamPanel = ref(false);
-const showWsConfigPanel = ref(false);
-const showPullConfigPanel = ref(false);
+const apSessionId = ref((getLS('ap.sid', '') || '').trim());
+const hasAppiumSession = () => Boolean(apSessionId.value.trim());
 
-const wsHostPort = ref((getLS('custom.ws.hostport', '') || '').trim());
-const wsHostInput = ref(wsHostPort.value);
-const legacyStreamHost = (getLS('custom.stream.hostport', '') || '').trim();
-const streamWebrtcHost = ref((getLS('custom.stream.webrtc', '') || '').trim());
-const webrtcHostInput = ref(streamWebrtcHost.value);
+const transientPanelApi = { closeAll: () => {} };
+const panelApi = { close: () => {} };
 
-if (legacyStreamHost) {
-  const resolved = resolveWebrtcBaseInput(legacyStreamHost);
-  if (resolved.ok) {
-    webrtcBase.value = resolved.base;
-    streamWebrtcHost.value = resolved.base;
-    webrtcHostInput.value = resolved.base;
-    setLS('custom.stream.webrtc', resolved.base);
-  } else {
-    console.warn('[hud] invalid stored stream host', resolved.message);
-  }
-  removeLS('custom.stream.hostport');
-} else if (streamWebrtcHost.value) {
-  const resolvedWebrtc = resolveWebrtcBaseInput(streamWebrtcHost.value);
-  if (resolvedWebrtc.ok) {
-    webrtcBase.value = resolvedWebrtc.base;
-  } else {
-    console.warn('[hud] invalid stored WebRTC host', resolvedWebrtc.message);
-    streamWebrtcHost.value = '';
-    webrtcHostInput.value = '';
-    removeLS('custom.stream.webrtc');
-  }
-}
-if (wsHostPort.value) {
-  const resolved = resolveWsUrlInput(wsHostPort.value);
-  if (resolved.ok) {
-    wsProxy.setUrl(resolved.url);
-    wsProxy.ensureConnection();
-  } else {
-    console.warn('[hud] invalid stored ws host', resolved.message);
-    wsHostPort.value = '';
-    wsHostInput.value = '';
-    removeLS('custom.ws.hostport');
-  }
-}
+const {
+  streamMode,
+  pendingStreamMode,
+  viewZoomPct,
+  viewZoomLabel,
+  wsHostPort,
+  wsHostInput,
+  streamWebrtcHost,
+  webrtcHostInput,
+  mjpegSrc,
+  webrtcSrc,
+  applyStreamMode,
+  reloadCurrentStream,
+  applyStreamSelection,
+  applyWsConfig,
+  applyStreamConfig,
+  syncStreamPanel,
+  syncWsConfigPanel,
+  syncPullConfigPanel,
+} = useStreamControls({
+  getLS,
+  setLS,
+  removeLS,
+  wsProxy,
+  toast,
+  webrtcBase,
+  apiBase,
+  defaultApiBase,
+  defaultWebrtcBase,
+  defaultWsUrl,
+  updateCursor,
+  updateDisplayLayout,
+  hasAppiumSession,
+  apSessionId,
+  streamReady,
+  streamToastShown,
+  applyViewZoom,
+  isProd,
+  onTransientPanelClose: () => transientPanelApi.closeAll(),
+});
 
-watch(showAppiumPanel, (visible) => {
-  if (visible) {
+const {
+  appiumSettings,
+  loadAppiumPrefs,
+  refreshAppiumSettingsFromBackend,
+  applyAppiumSettings,
+  createSessionWithUdid,
+  setSessionId,
+} = useAppiumSession({
+  apSessionId,
+  getLS,
+  setLS,
+  removeLS,
+  wsProxy,
+  toast,
+  describeWsError,
+  streamReady,
+  updateCursor,
+  mjpegSrc,
+  webrtcSrc,
+  applyStreamMode,
+  reloadCurrentStream,
+  fetchDeviceInfo,
+  streamToastShown,
+  closeAppiumPanel: () => panelApi.close(),
+});
+
+const {
+  showAppiumPanel,
+  showDevicePanel,
+  showGesturePanel,
+  showZoomPanel,
+  showStreamPanel,
+  showWsConfigPanel,
+  showPullConfigPanel,
+  openAppiumPanel,
+  closeAppiumPanel,
+  toggleAppiumPanel,
+  toggleDevicePanel,
+  toggleGesturePanel,
+  toggleZoomPanel,
+  toggleStreamPanel,
+  toggleWsConfigPanel,
+  togglePullConfigPanel,
+  closeTransientPanels,
+} = useHudPanels({
+  onAppiumOpen: () => {
     loadAppiumPrefs();
     refreshAppiumSettingsFromBackend();
-  }
-});
-
-watch(showDevicePanel, (visible) => {
-  if (visible) {
+  },
+  onDeviceOpen: () => {
     refreshDiscoveryDevices();
-  }
-});
-
-watch(showGesturePanel, (visible) => {
-  if (visible) {
+  },
+  onGestureOpen: () => {
     nextTick(() => applyViewZoom(viewZoomPct.value));
-  }
-});
-
-watch(showZoomPanel, (visible) => {
-  if (visible) {
+  },
+  onZoomOpen: () => {
     nextTick(() => applyViewZoom(viewZoomPct.value));
-  }
+  },
+  onStreamOpen: () => {
+    syncStreamPanel();
+  },
+  onWsConfigOpen: () => {
+    syncWsConfigPanel();
+  },
+  onPullConfigOpen: () => {
+    syncPullConfigPanel();
+  },
 });
 
-watch(showStreamPanel, (visible) => {
-  if (visible) {
-    pendingStreamMode.value = streamMode.value;
-  }
-});
-
-watch(showWsConfigPanel, (visible) => {
-  if (visible) {
-    wsHostInput.value = wsHostPort.value;
-  }
-});
-
-watch(showPullConfigPanel, (visible) => {
-  if (visible) {
-    webrtcHostInput.value = streamWebrtcHost.value;
-  }
-});
+panelApi.close = closeAppiumPanel;
+transientPanelApi.closeAll = closeTransientPanels;
+const AP_BASE = 'http://127.0.0.1:4723';
+setLS('ap.base', AP_BASE);
 
 const w3cTune = ref(readW3CTune());
 watch(w3cTune, (val) => {
@@ -378,156 +338,15 @@ const canvasRef = ref(null);
 const cursorRef = ref(null);
 const deviceBodyRef = ref(null);
 
-const mjpegSrc = ref('');
-const webrtcSrc = ref('');
-
-const AP_BASE = 'http://127.0.0.1:4723';
-setLS('ap.base', AP_BASE);
-
-const apSessionId = ref((getLS('ap.sid', '') || '').trim());
-watch(apSessionId, (val, prevVal) => {
-  const trimmed = (val || '').trim();
-  if (trimmed !== val) {
-    apSessionId.value = trimmed;
-    return;
-  }
-
-  const prevTrimmed = (prevVal || '').trim();
-
-  if (trimmed) {
-    setLS('ap.sid', trimmed);
-  } else {
-    try {
-      LS.removeItem('ap.sid');
-    } catch (_err) {
-      setLS('ap.sid', '');
-    }
-  }
-
-  if (trimmed === prevTrimmed) {
-    return;
-  }
-
-  if (!trimmed) {
-    streamReady.value = false;
-    updateCursor();
-    mjpegSrc.value = '';
-    webrtcSrc.value = '';
-    applyStreamMode();
-    return;
-  }
-
-  applyStreamMode();
-  fetchDeviceInfo();
-  refreshAppiumSettingsFromBackend();
-});
-
-const appiumSettings = reactive({
-  scale: Number(getLS('ap.scale', '60')) || 60,
-  fps: Number(getLS('ap.fps', '30')) || 30,
-  quality: Number(getLS('ap.quality', '15')) || 15,
-});
-
-let appiumSettingsFetching = false;
-
-function clampAppiumSetting(value, min, max, fallback) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return fallback;
-  return Math.min(max, Math.max(min, Math.round(num)));
-}
-
-function loadAppiumPrefs() {
-  const scale = clampAppiumSetting(getLS('ap.scale', appiumSettings.scale), 30, 100, 60);
-  const fps = clampAppiumSetting(getLS('ap.fps', appiumSettings.fps), 1, 60, 30);
-  const quality = clampAppiumSetting(getLS('ap.quality', appiumSettings.quality), 5, 50, 15);
-  if (appiumSettings.scale !== scale) appiumSettings.scale = scale;
-  if (appiumSettings.fps !== fps) appiumSettings.fps = fps;
-  if (appiumSettings.quality !== quality) appiumSettings.quality = quality;
-  pendingStreamMode.value = streamMode.value;
-  const storedZoom = readViewZoom();
-  if (viewZoomPct.value !== storedZoom) {
-    viewZoomPct.value = storedZoom;
-  } else {
-    nextTick(() => applyViewZoom(storedZoom));
-  }
-}
-
-async function refreshAppiumSettingsFromBackend() {
-  if (appiumSettingsFetching) return;
-  const sid = apSessionId.value.trim();
-  if (!sid) return;
-  const baseParam = String(getLS('ap.base', AP_BASE) || AP_BASE || '').trim();
-  const payload = { sessionId: sid };
-  if (baseParam) payload.base = baseParam;
-
-  appiumSettingsFetching = true;
-  try {
-    const resp = await wsProxy.send('appium.settings.fetch', payload);
-    if (!resp.ok) {
-      const status = typeof resp.status === 'number' ? resp.status : 0;
-      if (status === 410) {
-        setSessionId('');
-        streamReady.value = false;
-        updateCursor();
-        mjpegSrc.value = '';
-        webrtcSrc.value = '';
-        applyStreamMode();
-      }
-      const detailRaw = describeWsError(resp.error);
-      const statusLabel = status > 0 ? String(status) : '未知';
-      const hint = detailRaw ? `：${String(detailRaw).slice(0, 200)}` : '';
-      toast(`获取 Appium 设置失败(${statusLabel})${hint}`, 'err');
-      return;
-    }
-
-    const data = resp.data;
-    if (!data || typeof data !== 'object') {
-      return;
-    }
-    const payloadData = data.value && typeof data.value === 'object' ? data.value : data;
-    const scaleRaw = payloadData.mjpegScalingFactor;
-    const fpsRaw = payloadData.mjpegServerFramerate;
-    const qualityRaw = payloadData.mjpegServerScreenshotQuality;
-
-    const scale = scaleRaw == null ? appiumSettings.scale : clampAppiumSetting(scaleRaw, 30, 100, appiumSettings.scale);
-    const fps = fpsRaw == null ? appiumSettings.fps : clampAppiumSetting(fpsRaw, 1, 60, appiumSettings.fps);
-    const quality = qualityRaw == null ? appiumSettings.quality : clampAppiumSetting(qualityRaw, 5, 50, appiumSettings.quality);
-
-    if (appiumSettings.scale !== scale) appiumSettings.scale = scale;
-    if (appiumSettings.fps !== fps) appiumSettings.fps = fps;
-    if (appiumSettings.quality !== quality) appiumSettings.quality = quality;
-    setLS('ap.scale', String(scale));
-    setLS('ap.fps', String(fps));
-    setLS('ap.quality', String(quality));
-  } catch (err) {
-    toast(`获取 Appium 设置失败：${err}`, 'err');
-  } finally {
-    appiumSettingsFetching = false;
-  }
-}
-
-function openAppiumPanel() {
-  showAppiumPanel.value = true;
-}
-
-function closeAppiumPanel() {
-  showAppiumPanel.value = false;
-}
-
 const discoveryDevices = ref([]);
 const discoveryEmptyText = ref('正在获取设备列表…');
 const discoveryLoading = ref(false);
 const mobileBusy = ref(false);
-const streamToastShown = ref(false);
 const wsStatus = ref(wsProxy.state.status);
 
-wsProxy.onStatus((status, message) => {
+wsProxy.onStatus((status) => {
   if (typeof status === 'string') {
     wsStatus.value = status;
-  }
-  if (message && message.type === 'system.backend.disconnected') {
-    console.log('后端连接已断开');
-    resetSessionState();
   }
 });
 
@@ -570,14 +389,6 @@ function clampZoom(n) {
   return Math.max(50, Math.min(200, Math.round(num)));
 }
 
-function readStreamMode() {
-  if (isProd) return 'webrtc';
-  const raw = String(getLS('stream.mode', 'mjpeg') || 'mjpeg');
-  return raw === 'webrtc' ? 'webrtc' : 'mjpeg';
-}
-function readViewZoom() {
-  return clampZoom(getLS('view.zoom.pct', '100'));
-}
 function readW3CTune() {
   const raw = String(getLS('gest.w3c.tune', 'fast') || 'fast');
   const normalized = raw === 'fast' ? raw : 'fast';
@@ -589,24 +400,6 @@ function readW3CTune() {
 
 function toast(message, intent = 'err', ttl = 3200) {
   pushToast(message, intent, ttl);
-}
-
-function resetSessionState() {
-  const hadSession = apSessionId.value.trim().length > 0;
-  if (hadSession) {
-    apSessionId.value = '';
-  }
-  removeLS('ap.sid');
-  streamReady.value = false;
-  mjpegSrc.value = '';
-  webrtcSrc.value = '';
-  discoveryDevices.value = [];
-  discoveryEmptyText.value = `${message}，请稍后重试`;
-  // toast(hadSession ? `${message}，已清除本地会话` : message, 'warn', hadSession ? 3600 : 2600);
-}
-
-function hasAppiumSession() {
-  return apSessionId.value.length > 0;
 }
 
 function updateCursor() {
@@ -752,160 +545,20 @@ function appendGestLog(line) {
   }
 }
 
+function clearGestureLog() {
+  gestureLog.value = [];
+  const logEl = gestLogRef.value;
+  if (logEl) {
+    try { logEl.scrollTop = 0; } catch (_err) {}
+  }
+}
+
 function ev(type, payload) {
   const line = payload ? `${type}: ${JSON.stringify(payload)}` : type;
   appendGestLog(line);
 }
 
 function logDebug() {}
-
-function buildWebRTCUrl(udid, sessionId) {
-  const id = encodeURIComponent(String(udid || ''));
-  const sid = encodeURIComponent(String(sessionId || ''));
-  const base = trimTrailingSlashes(webrtcBase.value || defaultWebrtcBase);
-  const url = `${base}/${id}/${sid}`;
-  return url + (url.includes('?') ? '&' : '?') + WEBRTC_QUERY_SUFFIX;
-}
-
-function applyStreamMode() {
-  streamReady.value = false;
-  updateCursor();
-  const httpBase = trimTrailingSlashes(apiBase.value || defaultApiBase);
-  if (!hasAppiumSession()) {
-    mjpegSrc.value = '';
-    webrtcSrc.value = '';
-    if (!isProd && streamMode.value !== 'mjpeg') streamMode.value = 'mjpeg';
-    updateDisplayLayout();
-    return;
-  }
-  if (streamMode.value === 'webrtc') {
-    webrtcSrc.value = buildWebRTCUrl(getLS('ap.udid', 'default'), apSessionId.value || 'default');
-    mjpegSrc.value = '';
-  } else {
-    mjpegSrc.value = `${httpBase}/stream?${Date.now()}`;
-    webrtcSrc.value = '';
-  }
-  nextTick(() => {
-    updateDisplayLayout();
-  });
-}
-
-function reloadCurrentStream() {
-  streamReady.value = false;
-  updateCursor();
-  if (!hasAppiumSession()) return;
-  if (streamMode.value === 'webrtc') {
-    const base = buildWebRTCUrl(getLS('ap.udid', 'default'), apSessionId.value || 'default');
-    webrtcSrc.value = `${base}#${Math.random()}`;
-  } else {
-    const httpBase = trimTrailingSlashes(apiBase.value || defaultApiBase);
-    mjpegSrc.value = `${httpBase}/stream?${Date.now()}`;
-  }
-}
-
-function toggleDevicePanel() {
-  showDevicePanel.value = !showDevicePanel.value;
-}
-
-function toggleGesturePanel() {
-  showGesturePanel.value = !showGesturePanel.value;
-}
-
-function closeAllHudPanels() {
-  showZoomPanel.value = false;
-  showStreamPanel.value = false;
-  showWsConfigPanel.value = false;
-  showPullConfigPanel.value = false;
-}
-
-function toggleZoomPanel() {
-  const next = !showZoomPanel.value;
-  closeAllHudPanels();
-  showZoomPanel.value = next;
-}
-
-function toggleStreamPanel() {
-  const next = !showStreamPanel.value;
-  closeAllHudPanels();
-  showStreamPanel.value = next;
-  if (next) {
-    pendingStreamMode.value = streamMode.value;
-  }
-}
-
-function toggleWsConfigPanel() {
-  const next = !showWsConfigPanel.value;
-  closeAllHudPanels();
-  showWsConfigPanel.value = next;
-  if (next) {
-    wsHostInput.value = wsHostPort.value;
-  }
-}
-
-function togglePullConfigPanel() {
-  const next = !showPullConfigPanel.value;
-  closeAllHudPanels();
-  showPullConfigPanel.value = next;
-  if (next) {
-    webrtcHostInput.value = streamWebrtcHost.value;
-  }
-}
-
-function clearGestureLog() {
-  gestureLog.value = [];
-}
-
-function applyStreamSelection() {
-  if (!hasAppiumSession()) {
-    toast('请先获取或创建 Appium 会话后再应用流源。', 'err');
-    return;
-  }
-  streamMode.value = pendingStreamMode.value === 'webrtc' ? 'webrtc' : 'mjpeg';
-  toast('流源设置已应用', 'ok');
-}
-
-function applyWsConfig() {
-  const raw = (wsHostInput.value || '').trim();
-  const resolved = resolveWsUrlInput(raw);
-  if (!resolved.ok) {
-    toast(`WebSocket 地址无效：${resolved.message}`, 'err');
-    return;
-  }
-  wsHostPort.value = raw;
-  if (raw) {
-    setLS('custom.ws.hostport', raw);
-  } else {
-    removeLS('custom.ws.hostport');
-  }
-  wsHostInput.value = raw;
-  wsProxy.setUrl(resolved.url);
-  wsProxy.ensureConnection();
-  toast('WebSocket 地址已更新', 'ok');
-  showWsConfigPanel.value = false;
-}
-
-function applyStreamConfig() {
-  const webrtcRaw = (webrtcHostInput.value || '').trim();
-  const resolvedWebrtc = resolveWebrtcBaseInput(webrtcRaw);
-  if (!resolvedWebrtc.ok) {
-    toast(`WebRTC 地址无效：${resolvedWebrtc.message}`, 'err');
-    return;
-  }
-  streamWebrtcHost.value = webrtcRaw;
-  if (webrtcRaw) {
-    setLS('custom.stream.webrtc', webrtcRaw);
-  } else {
-    removeLS('custom.stream.webrtc');
-  }
-  removeLS('custom.stream.hostport');
-  webrtcHostInput.value = webrtcRaw;
-  webrtcBase.value = resolvedWebrtc.base;
-  applyStreamMode();
-  reloadCurrentStream();
-  pendingStreamMode.value = streamMode.value;
-  toast('拉流地址已更新', 'ok');
-  showPullConfigPanel.value = false;
-}
 
 function pressToolbarButton(kind) {
   if (kind === 'home') {
@@ -1206,10 +859,6 @@ async function pressHome() {
   await mobileExec('mobile: pressButton', { name: 'home' }, 'Home');
 }
 
-function setSessionId(value) {
-  apSessionId.value = String(value || '').trim();
-}
-
 async function fetchDeviceInfo() {
   const now = Date.now();
   if (now - lastDeviceInfoFetch < 1200) return;
@@ -1247,79 +896,6 @@ async function fetchDeviceInfo() {
   } finally {
     deviceInfoLoading = false;
     lastDeviceInfoFetch = Date.now();
-  }
-}
-
-async function applyAppiumSettings() {
-  const base = AP_BASE;
-  const sid = apSessionId.value.trim();
-  if (!sid) {
-    toast('请先获取或创建 Appium 会话', 'err');
-    return;
-  }
-  const settings = {
-    mjpegScalingFactor: Number(appiumSettings.scale),
-    mjpegServerFramerate: Number(appiumSettings.fps),
-    mjpegServerScreenshotQuality: Number(appiumSettings.quality),
-  };
-  setLS('ap.scale', String(settings.mjpegScalingFactor));
-  setLS('ap.fps', String(settings.mjpegServerFramerate));
-  setLS('ap.quality', String(settings.mjpegServerScreenshotQuality));
-  try {
-    const resp = await wsProxy.send('appium.settings.apply', { base, sessionId: sid, settings });
-    if (!resp.ok) {
-      const msg = describeWsError(resp.error);
-      toast(`应用失败: ${String(msg || '').slice(0, 400)}`, 'err');
-    } else {
-      toast('已应用设置', 'ok');
-      streamToastShown.value = false;
-      if (hasAppiumSession()) {
-        applyStreamMode();
-        fetchDeviceInfo();
-      }
-      closeAppiumPanel();
-    }
-  } catch (err) {
-    toast(`网络错误: ${err}`, 'err');
-  }
-}
-
-async function createSessionWithUdid(rawUdid, rawOsVersion) {
-  const base = AP_BASE;
-  const udid = String(rawUdid || '').trim();
-  const osVersion = String(rawOsVersion || '').trim();
-  if (!udid) {
-    toast('该设备缺少 UDID，无法创建会话。', 'err');
-    return;
-  }
-  try {
-    const resp = await wsProxy.send('appium.session.create', {
-      base,
-      udid,
-      osVersion: osVersion || undefined,
-      wdaLocalPort: 8100,
-      mjpegServerPort: 9100,
-      bundleId: 'com.apple.Preferences',
-      noReset: true,
-    });
-    const data = resp.data || {};
-    if (resp.ok && data.sessionId) {
-      setSessionId(data.sessionId);
-      if (udid) setLS('ap.udid', udid);
-      if (osVersion) setLS('ap.osVersion', osVersion);
-      else removeLS('ap.osVersion');
-      toast(`会话已创建: ${data.sessionId}`, 'ok');
-      streamToastShown.value = false;
-      reloadCurrentStream();
-      fetchDeviceInfo();
-      refreshAppiumSettingsFromBackend();
-      showDevicePanel.value = false;
-    } else {
-      const msg = describeWsError(resp.error);
-      toast(`创建失败: ${String(msg || JSON.stringify(data)).slice(0, 400)}`, 'err');
-    }
-  } catch (err) {
-    toast(`创建失败: ${err}`, 'err');
   }
 }
 
