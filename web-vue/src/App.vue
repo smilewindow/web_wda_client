@@ -2,51 +2,44 @@
   <div class="app-shell">
     <ToastContainer />
 
-    <div id="hud">
-      <span class="pill" id="hud-size">{{ hudSizeText }}</span>
-      <button class="btn" id="btn-appium" @click="toggleAppiumPanel">Appium 设置</button>
-      <button class="btn" id="btn-devices" @click="toggleDevicePanel">设备列表</button>
-    </div>
-    <div id="hud-controls">
-      <button class="btn" id="btn-zoom-panel" @click="toggleZoomPanel">画面缩放</button>
-      <template v-if="isDev">
-        <button class="btn" id="btn-stream-panel" @click="toggleStreamPanel">流源切换</button>
-        <button class="btn" id="btn-ws-config" @click="toggleWsConfigPanel">WebSocket 配置</button>
-        <button class="btn" id="btn-pull-config" @click="togglePullConfigPanel">拉流配置</button>
-      </template>
-    </div>
-    <div id="hud-zoom" v-show="showZoomPanel">
-      <label for="view-zoom" class="muted" style="min-width:72px">画面缩放%</label>
-      <input type="range" id="view-zoom" min="50" max="200" step="5" v-model.number="viewZoomPct" />
-      <span class="val" id="view-zoom-val">{{ viewZoomLabel }}</span>
-    </div>
-    <div v-if="isDev" id="hud-stream" v-show="showStreamPanel">
-      <label for="stream-mode" class="muted">流源</label>
-      <select id="stream-mode" v-model="pendingStreamMode" style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)">
-        <option value="mjpeg">MJPEG（后端 /stream）</option>
-        <option value="webrtc">WebRTC（自建推流）</option>
-      </select>
-      <button class="btn" id="stream-apply" @click="applyStreamSelection">应用流源</button>
-    </div>
-    <div v-if="isDev" id="hud-ws-config" v-show="showWsConfigPanel">
-      <label for="ws-host-port" class="muted">WS 地址</label>
-      <input type="text" id="ws-host-port" v-model="wsHostInput" placeholder="host:port 或 ws://地址" />
-      <button class="btn" id="ws-apply" @click="applyWsConfig">应用</button>
-    </div>
-    <div v-if="isDev" id="hud-pull-config" v-show="showPullConfigPanel">
-      <div class="pull-row">
-        <label for="pull-webrtc-host" class="muted">WebRTC 地址</label>
-        <input
-          type="text"
-          id="pull-webrtc-host"
-          v-model="webrtcHostInput"
-          placeholder="host:port 或 http://地址（留空默认 8889/iphone）"
-        />
-      </div>
-      <button class="btn" id="pull-apply" @click="applyStreamConfig">应用</button>
-    </div>
-
-    <button v-if="isDev" id="gest-toggle" @click="toggleGesturePanel">手势日志</button>
+    <HudControlBar
+      :hud-size-text="hudSizeText"
+      :is-dev="isDev"
+      @toggle-appium="toggleAppiumPanel"
+      @toggle-device="toggleDevicePanel"
+      @toggle-zoom="toggleZoomPanel"
+      @toggle-stream="toggleStreamPanel"
+      @toggle-ws="toggleWsConfigPanel"
+      @toggle-pull="togglePullConfigPanel"
+    />
+    <button
+      v-if="isDev"
+      class="btn gest-top-toggle"
+      @click="toggleGesturePanel"
+    >手势日志</button>
+    <HudZoomPanel
+      :visible="showZoomPanel"
+      v-model="viewZoomPct"
+      :label="viewZoomLabel"
+    />
+    <HudStreamPanel
+      v-if="isDev"
+      :visible="showStreamPanel"
+      v-model:mode="pendingStreamMode"
+      @apply="applyStreamSelection"
+    />
+    <WsConfigPanel
+      v-if="isDev"
+      :visible="showWsConfigPanel"
+      v-model:value="wsHostInput"
+      @apply="applyWsConfig"
+    />
+    <PullConfigPanel
+      v-if="isDev"
+      :visible="showPullConfigPanel"
+      v-model:value="webrtcHostInput"
+      @apply="applyStreamConfig"
+    />
 
     <div id="wrap">
       <div id="phone" ref="phoneRef">
@@ -70,86 +63,47 @@
       </div>
     </div>
 
-    <div id="toolbar">
-      <button class="btn" id="btn-home" @click="pressToolbarButton('home')">Home</button>
-      <button class="btn" id="btn-lock" @click="pressToolbarButton('lock')">Lock</button>
-      <button class="btn" id="btn-vol-up" @click="pressToolbarButton('volUp')">Vol +</button>
-      <button class="btn" id="btn-vol-down" @click="pressToolbarButton('volDown')">Vol −</button>
-      <button class="btn" id="btn-reload" @click="reloadStreamClick">重载</button>
-    </div>
+    <ToolbarControls @press="pressToolbarButton" @reload="reloadStreamClick" />
 
-    <div v-if="isDev" id="gest-panel" v-show="showGesturePanel">
-      <header>
-        <div class="row">
-          <label for="gest-w3c-tune" class="muted">滚动调优（W3C）</label>
-          <select
-            id="gest-w3c-tune"
-            v-model="w3cTune"
-            style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)"
-          >
-            <option value="fast">fast（原始极速版）</option>
-          </select>
-        </div>
-        <button id="gest-close" class="btn" @click="showGesturePanel = false">关闭</button>
-      </header>
-      <div class="body">
-        <div class="g-section">
-          <div class="g-sec-head">
-            <h3>事件日志</h3>
-            <button id="gest-clear" class="btn" @click="clearGestureLog">清空</button>
-          </div>
-          <div id="gest-log" ref="gestLogRef">
-            <div v-for="(line, idx) in gestureLog" :key="idx">{{ line }}</div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <GesturesPanel
+      v-if="isDev"
+      :visible="showGesturePanel"
+      :gesture-log="gestureLog"
+      :log-ref="gestLogRef"
+      v-model:w3cTune="w3cTune"
+      @close="showGesturePanel = false"
+      @clear="clearGestureLog"
+    />
 
-    <div id="appium-panel" v-show="showAppiumPanel">
-      <h4 style="margin-top:0">Appium MJPEG 设置</h4>
-      <div class="row">
-        <label style="width:74px">缩放%</label>
-        <input type="range" min="30" max="100" step="1" id="ap-scale" v-model.number="appiumSettings.scale" />
-        <span class="val" id="ap-scale-val">{{ appiumSettings.scale }}</span>
-      </div>
-      <div class="row">
-        <label style="width:74px">帧率</label>
-        <input type="range" min="1" max="60" step="1" id="ap-fps" v-model.number="appiumSettings.fps" />
-        <span class="val" id="ap-fps-val">{{ appiumSettings.fps }}</span>
-      </div>
-      <div class="row">
-        <label style="width:74px">质量</label>
-        <input type="range" min="5" max="50" step="1" id="ap-quality" v-model.number="appiumSettings.quality" />
-        <span class="val" id="ap-quality-val">{{ appiumSettings.quality }}</span>
-      </div>
-      <div class="row" style="justify-content:flex-end;gap:10px;flex-wrap:wrap">
-        <button class="btn" id="ap-apply" @click="applyAppiumSettings">应用</button>
-        <button class="btn" id="ap-close" @click="closeAppiumPanel">关闭</button>
-      </div>
-    </div>
+    <AppiumSettingsPanel
+      :visible="showAppiumPanel"
+      v-model="appiumSettings"
+      @apply="applyAppiumSettings"
+      @close="closeAppiumPanel"
+    />
 
-    <div id="device-panel" v-show="showDevicePanel">
-      <div class="head">
-        <h4>可用设备</h4>
-        <button class="btn" id="device-close" @click="showDevicePanel = false">关闭</button>
-      </div>
-      <div class="body" ref="deviceBodyRef">
-        <div class="empty" v-if="!discoveryDevices.length">{{ discoveryEmptyText }}</div>
-        <div class="device-card" v-for="device in discoveryDevices" :key="device.udid || device.name">
-          <h5>{{ device.name || '未知设备' }} ({{ device.udid || '无 UDID' }})</h5>
-          <div class="kv">系统: {{ device.osVersion || '-' }} | 型号: {{ device.model || '-' }} | 连接: {{ device.connection || '未知' }}</div>
-          <div class="device-actions">
-            <button class="btn" @click="createSessionWithUdid(device.udid || '', device.osVersion || '')">创建会话</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <DevicePanel
+      :visible="showDevicePanel"
+      :devices="discoveryDevices"
+      :empty-text="discoveryEmptyText"
+      @close="showDevicePanel = false"
+      @create-session="handleCreateDeviceSession"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import ToastContainer from './components/ToastContainer.vue';
+import AppiumSettingsPanel from './components/AppiumSettingsPanel.vue';
+import DevicePanel from './components/DevicePanel.vue';
+import HudControlBar from './components/HudControlBar.vue';
+import HudZoomPanel from './components/HudZoomPanel.vue';
+import HudStreamPanel from './components/HudStreamPanel.vue';
+import WsConfigPanel from './components/WsConfigPanel.vue';
+import PullConfigPanel from './components/PullConfigPanel.vue';
+import GesturesPanel from './components/GesturesPanel.vue';
+import ToolbarControls from './components/ToolbarControls.vue';
 import { wsProxy } from './services/wsProxy';
 import { getLS, setLS, removeLS } from './utils/storage';
 import { useToastStore } from './stores/toastStore';
@@ -198,7 +152,7 @@ const streamToastShown = ref(false);
 const hudSizeText = computed(() => {
   const pt = devicePt.w && devicePt.h ? `pt ${devicePt.w}×${devicePt.h}` : 'pt -×-';
   const px = devicePx.w && devicePx.h ? `px ${devicePx.w}×${devicePx.h}` : 'px -×-';
-  return `${pt} | ${px}`;
+  return `${pt}\n${px}`;
 });
 
 const apSessionId = ref((getLS('ap.sid', '') || '').trim());
@@ -321,8 +275,6 @@ const streamImgRef = ref(null);
 const webrtcRef = ref(null);
 const canvasRef = ref(null);
 const cursorRef = ref(null);
-const deviceBodyRef = ref(null);
-
 const discoveryDevices = ref([]);
 const discoveryEmptyText = ref('正在获取设备列表…');
 const discoveryLoading = ref(false);
@@ -526,6 +478,12 @@ async function fetchDeviceInfo() {
     deviceInfoLoading = false;
     lastDeviceInfoFetch = Date.now();
   }
+}
+
+async function handleCreateDeviceSession(device) {
+  const udid = String((device && device.udid) || '').trim();
+  const osVersion = String((device && device.osVersion) || '').trim();
+  createSessionWithUdid(udid, osVersion);
 }
 
 async function refreshDiscoveryDevices() {
