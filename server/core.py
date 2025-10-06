@@ -7,7 +7,7 @@ import httpx
 # Environment and global state shared across routers/utils
 
 MJPEG_URL = os.environ.get("MJPEG", "").rstrip("/")
-APPIUM_BASE = os.environ.get("APPIUM_BASE", "").rstrip("/")
+APPIUM_BASE = (os.environ.get("APPIUM_BASE") or "http://127.0.0.1:4723").rstrip("/")
 _DISCOVERY_BASE_ENV = os.environ.get("DEVICE_DISCOVERY_BASE") or os.environ.get("DISCOVERY_BASE") or "http://127.0.0.1:3030"
 DISCOVERY_BASE = _DISCOVERY_BASE_ENV.rstrip("/") if _DISCOVERY_BASE_ENV else ""
 

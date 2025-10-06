@@ -13,16 +13,12 @@ router = APIRouter()
 
 @router.post("/api/appium/settings")
 async def api_appium_set(payload: Dict[str, Any]):
-    base = (
-        (payload.get("base") or core.APPIUM_BASE).rstrip("/")
-        if (payload.get("base") or core.APPIUM_BASE)
-        else None
-    )
+    base = core.APPIUM_BASE
     sid = payload.get("sessionId")
     settings = payload.get("settings", {})
-    if not base or not sid or not isinstance(settings, dict):
+    if not sid or not isinstance(settings, dict):
         return JSONResponse(
-            {"error": "base, sessionId, settings are required"}, status_code=400
+            {"error": "sessionId and settings are required"}, status_code=400
         )
     try:
         res = await ad.update_settings(base, sid, settings)  # dict of settings
@@ -36,7 +32,6 @@ async def api_appium_set(payload: Dict[str, Any]):
             {
                 "code": "SESSION_GONE",
                 "message": "Appium 会话已失效，请重建会话后重试",
-                "base": base,
                 "sessionId": sid,
                 "recoverable": True,
                 "action": "RECREATE_SESSION",
@@ -52,25 +47,24 @@ async def api_appium_set(payload: Dict[str, Any]):
 
 
 @router.get("/api/appium/settings")
-async def api_appium_get(base: Optional[str] = None, sessionId: Optional[str] = None):
-    b = (base or core.APPIUM_BASE).rstrip(
-        "/") if (base or core.APPIUM_BASE) else None
+async def api_appium_get(sessionId: Optional[str] = None):
+    base = core.APPIUM_BASE
     sid = sessionId
-    if not b or not sid:
+    if not sid:
         return JSONResponse(
-            {"error": "query params base and sessionId are required"}, status_code=400
+            {"error": "query param sessionId is required"}, status_code=400
         )
     try:
-        res = await ad.get_settings(b, sid)
+        res = await ad.get_settings(base, sid)
         return {"value": res}
     except ad.AppiumInvalidSession as e:
         core.logger.warning(
-            f"appium settings GET invalid-session: base={b} sid={sid}")
+            f"appium settings GET invalid-session: base={base} sid={sid}"
+        )
         return JSONResponse(
             {
                 "code": "SESSION_GONE",
                 "message": "Appium 会话已失效，请重建会话后重试",
-                "base": b,
                 "sessionId": sid,
                 "recoverable": True,
                 "action": "RECREATE_SESSION",
@@ -79,30 +73,19 @@ async def api_appium_get(base: Optional[str] = None, sessionId: Optional[str] = 
             status_code=410,
         )
     except Exception as e:
-        core.logger.exception(
-            f"appium settings GET failed: base={b} sid={sid}")
+        core.logger.exception(f"appium settings GET failed: base={base} sid={sid}")
         return JSONResponse({"error": str(e)}, status_code=502)
 
 
 @router.get("/api/appium/sessions")
-async def api_appium_sessions(base: Optional[str] = None):
-    b = (base or core.APPIUM_BASE).rstrip(
-        "/") if (base or core.APPIUM_BASE) else None
-    if not b:
-        return JSONResponse(
-            {"error": "query param base is required or set APPIUM_BASE"},
-            status_code=400,
-        )
-    return {"sessions": ad.list_sessions(b)}
+async def api_appium_sessions():
+    base = core.APPIUM_BASE
+    return {"sessions": ad.list_sessions(base)}
 
 
 @router.post("/api/appium/create")
 async def api_appium_create(payload: Dict[str, Any]):
-    base = (
-        (payload.get("base") or core.APPIUM_BASE).rstrip("/")
-        if (payload.get("base") or core.APPIUM_BASE)
-        else None
-    )
+    base = core.APPIUM_BASE
     udid = payload.get("udid")
     os_version_raw = payload.get("osVersion")
     wda_port = int(payload.get("wdaLocalPort", 8100))
@@ -110,8 +93,8 @@ async def api_appium_create(payload: Dict[str, Any]):
     bundle_id = payload.get("bundleId")
     no_reset = payload.get("noReset")
     new_cmd_to = payload.get("newCommandTimeout", 0)
-    if not base or not udid:
-        return JSONResponse({"error": "base and udid are required"}, status_code=400)
+    if not udid:
+        return JSONResponse({"error": "udid is required"}, status_code=400)
     # 基础能力（按推荐默认值；旧项保留为注释便于回滚/对照）
     caps: Dict[str, Any] = {
         "platformName": "iOS",
@@ -119,8 +102,8 @@ async def api_appium_create(payload: Dict[str, Any]):
         "appium:udid": udid,
         "appium:wdaLocalPort": wda_port,
         "appium:mjpegServerPort": mjpeg_port,
-        #"appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner_ios_17-Runner.app",
-        "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner-Runner.app",
+        # "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner_ios_17-Runner.app",
+        # "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner-Runner.app",
         # "appium:usePreinstalledWDA": True,
         # "appium:updatedWDABundleId": "net.xuyuqin.WebDriverAgentRunner",
         # "appium:useNewWDA": False,
@@ -175,20 +158,20 @@ async def api_appium_create(payload: Dict[str, Any]):
         for k, v in settings.items():
             extraCaps[f"appium:settings[{k}]"] = v
         caps.update(extraCaps)
-  #       const settings = {
-  #   // 截止每次“自定义快照”的最长期限（秒）——越小越快
-  #   customSnapshotTimeout: 10,
-  #   // 动画冷却时间（秒），优化操作响应（优化时统一设置）
-  #   animationCoolOffTimeout: 0,
-  #   // 限制可访问性树的遍历深度，明显缩短“请求快照”时间
-  #   snapshotMaxDepth: 20,
-  #   // 单元素查找走 firstMatch 快路径（若你还会用到元素定位）
-  #   useFirstMatch: true,
-  #   // 打开 iOS 的“降低动态效果”（减少系统层动画）
-  #   reduceMotion: true,
-  #   // 如果是分屏/浮窗导致“当前活跃 App”判断反复，可把命中点移到内容区
-  #   // activeAppDetectionPoint: "200,200"
-  # };
+    #       const settings = {
+    #   // 截止每次“自定义快照”的最长期限（秒）——越小越快
+    #   customSnapshotTimeout: 10,
+    #   // 动画冷却时间（秒），优化操作响应（优化时统一设置）
+    #   animationCoolOffTimeout: 0,
+    #   // 限制可访问性树的遍历深度，明显缩短“请求快照”时间
+    #   snapshotMaxDepth: 20,
+    #   // 单元素查找走 firstMatch 快路径（若你还会用到元素定位）
+    #   useFirstMatch: true,
+    #   // 打开 iOS 的“降低动态效果”（减少系统层动画）
+    #   reduceMotion: true,
+    #   // 如果是分屏/浮窗导致“当前活跃 App”判断反复，可把命中点移到内容区
+    #   // activeAppDetectionPoint: "200,200"
+    # };
     except Exception:
         pass
     if bundle_id:
@@ -214,21 +197,15 @@ async def api_appium_create(payload: Dict[str, Any]):
 
 
 @router.get("/api/appium/last-session")
-async def api_appium_last_session(base: Optional[str] = None):
-    b = (base or core.APPIUM_BASE).rstrip(
-        "/") if (base or core.APPIUM_BASE) else None
-    if not b:
-        return JSONResponse(
-            {"error": "query param base is required or set APPIUM_BASE"},
-            status_code=400,
-        )
-    sid = core.APPIUM_LATEST.get(b)
+async def api_appium_last_session():
+    base = core.APPIUM_BASE
+    sid = core.APPIUM_LATEST.get(base)
     if not sid:
         return {"sessionId": None, "ok": False}
-    if ad.get_driver(b, sid) is not None:
+    if ad.get_driver(base, sid) is not None:
         return {"sessionId": sid, "ok": True}
     try:
-        del core.APPIUM_LATEST[b]
+        del core.APPIUM_LATEST[base]
     except Exception:
         pass
     return {"sessionId": None, "ok": False}
@@ -239,23 +216,18 @@ async def api_appium_exec_mobile(payload: Dict[str, Any]):
     """代理执行 Appium 的 mobile: 命令。
     请求体示例：
     {
-      "base": "http://127.0.0.1:4723",
       "sessionId": "<APPIUM_SESSION_ID>",
       "script": "mobile: swipe",
       "args": { "direction": "down" } | [ ... ]
     }
     """
-    b = (
-        (payload.get("base") or core.APPIUM_BASE).rstrip("/")
-        if (payload.get("base") or core.APPIUM_BASE)
-        else None
-    )
+    base = core.APPIUM_BASE
     sid = payload.get("sessionId")
     script = payload.get("script")
     args = payload.get("args")
-    if not b or not sid or not isinstance(script, str):
+    if not sid or not isinstance(script, str):
         return JSONResponse(
-            {"error": "base, sessionId, script are required"}, status_code=400
+            {"error": "sessionId and script are required"}, status_code=400
         )
     if isinstance(args, list):
         args_arr = args
@@ -272,7 +244,9 @@ async def api_appium_exec_mobile(payload: Dict[str, Any]):
             args_obj = args_arr[0] if args_arr else {}
         else:
             args_obj = args_arr
-        res, new_sid = await ad.exec_mobile_with_auto_recreate(b, sid, script, args_obj)
+        res, new_sid = await ad.exec_mobile_with_auto_recreate(
+            base, sid, script, args_obj
+        )
         try:
             enc = jsonable_encoder(res)
         except Exception:
@@ -283,13 +257,12 @@ async def api_appium_exec_mobile(payload: Dict[str, Any]):
         return body
     except ad.AppiumInvalidSession as e:
         core.logger.warning(
-            f"appium exec-mobile invalid-session: base={b} sid={sid} script={script}"
+            f"appium exec-mobile invalid-session: base={base} sid={sid} script={script}"
         )
         return JSONResponse(
             {
                 "code": "SESSION_GONE",
                 "message": "Appium 会话已失效，请重建会话后重试",
-                "base": b,
                 "sessionId": sid,
                 "recoverable": True,
                 "action": "RECREATE_SESSION",
@@ -299,7 +272,7 @@ async def api_appium_exec_mobile(payload: Dict[str, Any]):
         )
     except Exception as e:
         core.logger.exception(
-            f"appium exec-mobile failed: base={b} sid={sid} script={script}"
+            f"appium exec-mobile failed: base={base} sid={sid} script={script}"
         )
         return JSONResponse({"error": str(e)}, status_code=502)
 
@@ -309,24 +282,19 @@ async def api_appium_actions(payload: Dict[str, Any]):
     """下发 W3C Actions（原生 pointer 序列）。
     请求体示例：
     {
-      "base": "http://127.0.0.1:4723",
       "sessionId": "<APPIUM_SESSION_ID>",
       "actions": [ { ... } ]
     }
     注：此端点直接调用 Appium /session/{sid}/actions HTTP 接口以避免客户端包装差异。
     """
-    b = (
-        (payload.get("base") or core.APPIUM_BASE).rstrip("/")
-        if (payload.get("base") or core.APPIUM_BASE)
-        else None
-    )
+    base = core.APPIUM_BASE
     sid = payload.get("sessionId")
     actions = payload.get("actions")
-    if not b or not sid or not isinstance(actions, list):
+    if not sid or not isinstance(actions, list):
         return JSONResponse(
-            {"error": "base, sessionId, actions are required"}, status_code=400
+            {"error": "sessionId and actions are required"}, status_code=400
         )
-    url = f"{b}/session/{sid}/actions"
+    url = f"{base}/session/{sid}/actions"
     client = await core.get_http_client()
     try:
         r = await client.post(url, json={"actions": actions}, timeout=30)
@@ -350,8 +318,7 @@ async def api_appium_actions(payload: Dict[str, Any]):
             except Exception:
                 js = None
             if isinstance(js, dict):
-                val = js.get("value") if isinstance(
-                    js.get("value"), dict) else js
+                val = js.get("value") if isinstance(js.get("value"), dict) else js
                 err = (val or {}).get("error") or (val or {}).get("message")
                 if isinstance(err, str) and (
                     "invalid session id" in err.lower()
@@ -361,17 +328,16 @@ async def api_appium_actions(payload: Dict[str, Any]):
         if invalid:
             try:
                 # 清理本地缓存，避免后续继续使用失效会话
-                ad.invalidate_session(b, sid)
+                ad.invalidate_session(base, sid)
             except Exception:
                 pass
             core.logger.warning(
-                f"appium actions invalid-session: base={b} sid={sid} url={url}"
+                f"appium actions invalid-session: base={base} sid={sid} url={url}"
             )
             return JSONResponse(
                 {
                     "code": "SESSION_GONE",
                     "message": "Appium 会话已失效，请重建会话后重试",
-                    "base": b,
                     "sessionId": sid,
                     "recoverable": True,
                     "action": "RECREATE_SESSION",

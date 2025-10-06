@@ -18,7 +18,7 @@ export function useGestures(options) {
     setLS,
     wsProxy,
     toast,
-    getAppiumBaseAndSid,
+    getAppiumSessionId,
     setSessionId,
     canvasRef,
     cursorRef,
@@ -137,13 +137,11 @@ export function useGestures(options) {
 
       if (!resp.ok && resp.status === 410 && !skipSelfHeal) {
         try {
-          const baseLS = String(getLS('ap.base', '') || '').trim();
           const udid = String(getLS('ap.udid', '') || '').trim();
           const osVersionLS = String(getLS('ap.osVersion', '') || '').trim();
-          if (baseLS && udid) {
+          if (udid) {
             toast('检测到会话失效，正在自动重建…', 'err');
             const createResp = await wsProxy.send('appium.session.create', {
-              base: baseLS,
               udid,
               osVersion: osVersionLS || undefined,
             }, wsSendOptions);
@@ -199,9 +197,9 @@ export function useGestures(options) {
   }
 
   async function mobileExec(script, args, label) {
-    const { base, sid } = getAppiumBaseAndSid();
-    if (!base || !sid) {
-      toast('Appium 通道需要已配置 Base 与 Session', 'err');
+    const sid = getAppiumSessionId();
+    if (!sid) {
+      toast('Appium 通道需要已配置会话', 'err');
       return;
     }
     if (mobileBusy.value) {
@@ -210,7 +208,7 @@ export function useGestures(options) {
     }
     mobileBusy.value = true;
     try {
-      await sendProxyRequest('appium.exec.mobile', { base, sessionId: sid, script, args }, label);
+      await sendProxyRequest('appium.exec.mobile', { sessionId: sid, script, args }, label);
     } finally {
       mobileBusy.value = false;
     }
@@ -229,12 +227,12 @@ export function useGestures(options) {
         { type: 'pointerUp', button: 0 },
       ],
     }];
-    const { base, sid } = getAppiumBaseAndSid();
-    if (!base || !sid) {
-      toast('Appium 通道需要已配置 Base 与 Session', 'err');
+    const sid = getAppiumSessionId();
+    if (!sid) {
+      toast('Appium 通道需要已配置会话', 'err');
       return;
     }
-    await sendProxyRequest('appium.actions.execute', { base, sessionId: sid, actions }, 'W3C Actions');
+    await sendProxyRequest('appium.actions.execute', { sessionId: sid, actions }, 'W3C Actions');
   }
 
   async function longPressAt(x, y, durMs) {
@@ -250,12 +248,12 @@ export function useGestures(options) {
         { type: 'pointerUp', button: 0 },
       ],
     }];
-    const { base, sid } = getAppiumBaseAndSid();
-    if (!base || !sid) {
-      toast('Appium 通道需要已配置 Base 与 Session', 'err');
+    const sid = getAppiumSessionId();
+    if (!sid) {
+      toast('Appium 通道需要已配置会话', 'err');
       return;
     }
-    await sendProxyRequest('appium.actions.execute', { base, sessionId: sid, actions }, 'W3C Actions');
+    await sendProxyRequest('appium.actions.execute', { sessionId: sid, actions }, 'W3C Actions');
   }
 
   function getPxScale() {
@@ -332,9 +330,9 @@ export function useGestures(options) {
   }
 
   async function sendWheelActions(startPt, endPt, durationMs) {
-    const { base, sid } = getAppiumBaseAndSid();
-    if (!base || !sid) {
-      toast('Appium 通道需要已配置 Base 与 Session', 'err');
+    const sid = getAppiumSessionId();
+    if (!sid) {
+      toast('Appium 通道需要已配置会话', 'err');
       return;
     }
     const actions = [{
@@ -348,16 +346,16 @@ export function useGestures(options) {
         { type: 'pointerUp', button: 0 },
       ],
     }];
-    await sendProxyRequest('appium.actions.execute', { base, sessionId: sid, actions }, 'wheel-scroll');
+    await sendProxyRequest('appium.actions.execute', { sessionId: sid, actions }, 'wheel-scroll');
     if (WHEEL_POST_DELAY_MS > 0) {
       await new Promise((resolve) => setTimeout(resolve, WHEEL_POST_DELAY_MS));
     }
   }
 
   async function sendW3CTrace(trace) {
-    const { base, sid } = getAppiumBaseAndSid();
-    if (!base || !sid) {
-      toast('Appium 通道需要已配置 Base 与 Session', 'err');
+    const sid = getAppiumSessionId();
+    if (!sid) {
+      toast('Appium 通道需要已配置会话', 'err');
       return;
     }
     const actions = buildW3CActionsFromTrace(trace);
@@ -381,7 +379,7 @@ export function useGestures(options) {
       }
       ev('w3c-actions', { steps: seq.length || 0, moves, pauses, preview });
     } catch (_err) {}
-    await sendProxyRequest('appium.actions.execute', { base, sessionId: sid, actions }, 'W3C Actions');
+    await sendProxyRequest('appium.actions.execute', { sessionId: sid, actions }, 'W3C Actions');
   }
 
   async function pressHome() {

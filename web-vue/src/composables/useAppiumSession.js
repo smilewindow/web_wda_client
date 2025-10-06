@@ -1,6 +1,4 @@
 import { ref, reactive, watch } from 'vue';
-
-const AP_BASE = 'http://127.0.0.1:4723';
 const noop = () => {};
 
 export function useAppiumSession(options) {
@@ -25,8 +23,6 @@ export function useAppiumSession(options) {
 
   const apSessionId = apSessionIdRef || ref((getLS('ap.sid', '') || '').trim());
   const safeCloseAppiumPanel = typeof closeAppiumPanel === 'function' ? closeAppiumPanel : noop;
-
-  setLS('ap.base', AP_BASE);
 
   const appiumSettings = reactive({
     scale: Number(getLS('ap.scale', '60')) || 60,
@@ -88,9 +84,7 @@ export function useAppiumSession(options) {
     if (appiumSettingsFetching) return;
     const sid = apSessionId.value.trim();
     if (!sid) return;
-    const baseParam = String(getLS('ap.base', AP_BASE) || AP_BASE || '').trim();
     const payload = { sessionId: sid };
-    if (baseParam) payload.base = baseParam;
 
     appiumSettingsFetching = true;
     try {
@@ -153,7 +147,7 @@ export function useAppiumSession(options) {
     setLS('ap.fps', String(settings.mjpegServerFramerate));
     setLS('ap.quality', String(settings.mjpegServerScreenshotQuality));
     try {
-      const resp = await wsProxy.send('appium.settings.apply', { base: AP_BASE, sessionId: sid, settings });
+      const resp = await wsProxy.send('appium.settings.apply', { sessionId: sid, settings });
       if (!resp.ok) {
         const msg = describeWsError(resp.error);
         toast(`应用失败: ${String(msg || '').slice(0, 400)}`, 'err');
@@ -180,7 +174,6 @@ export function useAppiumSession(options) {
     }
     try {
       const resp = await wsProxy.send('appium.session.create', {
-        base: AP_BASE,
         udid,
         osVersion: osVersion || undefined,
         wdaLocalPort: 8100,

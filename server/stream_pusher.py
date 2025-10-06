@@ -11,7 +11,7 @@ import core
 
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
 RTMP_BASE = os.environ.get(
-    "RTMP_PUSH_BASE", "rtmp://82.157.94.134:1935/iphone").rstrip("/")
+    "RTMP_PUSH_BASE", "rtmp://127.0.0.1:1935/iphone").rstrip("/")
 RTMP_USER = os.environ.get("RTMP_PUSH_USER", "encoder")
 RTMP_PASS = os.environ.get("RTMP_PUSH_PASS", "s3cret")
 ENABLE_PUSH = os.environ.get("ENABLE_STREAM_PUSH", "true").lower() in {

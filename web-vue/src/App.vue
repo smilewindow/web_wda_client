@@ -424,7 +424,7 @@ const {
   setLS,
   wsProxy,
   toast,
-  getAppiumBaseAndSid,
+  getAppiumSessionId,
   setSessionId,
   canvasRef,
   cursorRef,
@@ -435,8 +435,6 @@ const {
 
 panelApi.close = closeAppiumPanel;
 transientPanelApi.closeAll = closeTransientPanels;
-const AP_BASE = 'http://127.0.0.1:4723';
-setLS('ap.base', AP_BASE);
 
 async function fetchDeviceInfo() {
   const now = Date.now();
@@ -528,8 +526,8 @@ function reloadStreamClick() {
   fetchDeviceInfo();
 }
 
-function getAppiumBaseAndSid() {
-  return { base: AP_BASE, sid: apSessionId.value.trim() };
+function getAppiumSessionId() {
+  return apSessionId.value.trim();
 }
 
 function describeWsError(err) {
