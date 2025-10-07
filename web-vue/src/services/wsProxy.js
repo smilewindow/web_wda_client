@@ -144,12 +144,17 @@ export function createWsProxy(initialUrl) {
       return;
     }
     const msgId = message && message.id;
+    const msgType = message && message.type;
     if (!msgId) {
       notifyStatusListeners(state.status, message);
       return;
     }
     const entry = pending.get(msgId);
     if (!entry) {
+      if (typeof msgType === 'string' && msgType.startsWith('system.')) {
+        notifyStatusListeners(state.status, message);
+        return;
+      }
       console.warn('[ws-proxy] response for unknown id', msgId, message);
       return;
     }

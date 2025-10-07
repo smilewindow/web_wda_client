@@ -1,0 +1,9 @@
+{
+  "device.info": {"method": "GET", "path": "/api/device-info"},
+  "appium.session.create": {"method": "POST", "path": "/api/appium/create"},
+  "appium.settings.apply": {"method": "POST", "path": "/api/appium/settings"},
+  "appium.settings.fetch": {"method": "GET", "path": "/api/appium/settings"},
+  "discovery.devices.list": {"method": "GET", "path": "/api/discovery/devices"},
+  "appium.exec.mobile": {"method": "POST", "path": "/api/appium/exec-mobile"},
+  "appium.actions.execute": {"method": "POST", "path": "/api/appium/actions"}
+}

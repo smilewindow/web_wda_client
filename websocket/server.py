@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import uuid
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from websockets.exceptions import ConnectionClosed
@@ -14,7 +15,7 @@ WS_HOST = os.getenv("WS_HOST", "0.0.0.0")
 WS_PORT = int(os.getenv("WS_PORT", "8765"))
 
 
-MESSAGE_ROUTES: Dict[str, Dict[str, Any]] = {
+_DEFAULT_MESSAGE_ROUTES: Dict[str, Dict[str, Any]] = {
     "device.info": {"method": "GET", "path": "/api/device-info"},
     "appium.session.create": {"method": "POST", "path": "/api/appium/create"},
     "appium.settings.apply": {"method": "POST", "path": "/api/appium/settings"},
@@ -22,8 +23,32 @@ MESSAGE_ROUTES: Dict[str, Dict[str, Any]] = {
     "discovery.devices.list": {"method": "GET", "path": "/api/discovery/devices"},
     "appium.exec.mobile": {"method": "POST", "path": "/api/appium/exec-mobile"},
     "appium.actions.execute": {"method": "POST", "path": "/api/appium/actions"},
-    # Reserved: future front-end /api/tap calls could map to appium.tap.execute
 }
+
+
+def _load_message_routes() -> Dict[str, Dict[str, Any]]:
+    config_path = Path(__file__).resolve().parent.parent / "config" / "message_routes.json"
+    try:
+        with config_path.open("r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+        if not isinstance(raw, dict):
+            raise ValueError("message_routes.json must define an object")
+        normalized: Dict[str, Dict[str, Any]] = {}
+        for key, value in raw.items():
+            if not isinstance(value, dict):
+                raise ValueError(f"route entry for {key!r} must be an object")
+            method = str(value.get("method", "")).upper() or "GET"
+            path = str(value.get("path", "")).strip()
+            if not path:
+                raise ValueError(f"route entry for {key!r} missing path")
+            normalized[key] = {"method": method, "path": path}
+        return normalized
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("Using default WS message routes due to config error: %s", exc)
+        return {k: v.copy() for k, v in _DEFAULT_MESSAGE_ROUTES.items()}
+
+
+MESSAGE_ROUTES: Dict[str, Dict[str, Any]] = _load_message_routes()
 
 
 CONNECTED: Dict[WebSocketServerProtocol, Dict[str, Any]] = {}

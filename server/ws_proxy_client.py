@@ -3,13 +3,14 @@ import contextlib
 import json
 import os
 import uuid
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import websockets
 
 import core
 
-MESSAGE_ROUTES = {
+_DEFAULT_MESSAGE_ROUTES: Dict[str, Dict[str, str]] = {
     "device.info": {"method": "GET", "path": "/api/device-info"},
     "appium.session.create": {"method": "POST", "path": "/api/appium/create"},
     "appium.settings.apply": {"method": "POST", "path": "/api/appium/settings"},
@@ -18,6 +19,33 @@ MESSAGE_ROUTES = {
     "appium.exec.mobile": {"method": "POST", "path": "/api/appium/exec-mobile"},
     "appium.actions.execute": {"method": "POST", "path": "/api/appium/actions"},
 }
+
+
+def _load_message_routes() -> Dict[str, Dict[str, str]]:
+    """Load message routes from shared config, falling back to defaults on error."""
+
+    config_path = Path(__file__).resolve().parent.parent / "config" / "message_routes.json"
+    try:
+        with config_path.open("r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+        if not isinstance(raw, dict):
+            raise ValueError("message_routes.json must define an object")
+        normalized: Dict[str, Dict[str, str]] = {}
+        for key, value in raw.items():
+            if not isinstance(value, dict):
+                raise ValueError(f"route entry for {key!r} must be an object")
+            method = str(value.get("method", "")).upper() or "GET"
+            path = str(value.get("path", "")).strip()
+            if not path:
+                raise ValueError(f"route entry for {key!r} missing path")
+            normalized[key] = {"method": method, "path": path}
+        return normalized
+    except Exception as exc:  # noqa: BLE001
+        core.logger.warning("Using default WS message routes due to config error: %s", exc)
+        return _DEFAULT_MESSAGE_ROUTES.copy()
+
+
+MESSAGE_ROUTES = _load_message_routes()
 
 BACKEND_HTTP_BASE = (os.environ.get("WS_BACKEND_HTTP_BASE") or "http://127.0.0.1:7070").rstrip("/")
 
