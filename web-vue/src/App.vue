@@ -205,7 +205,7 @@ const {
 const {
   appiumSettings,
   loadAppiumPrefs,
-  refreshAppiumSettingsFromBackend,
+  refreshAppiumSettings,
   applyAppiumSettings,
   createSessionWithUdid,
   setSessionId,
@@ -226,6 +226,7 @@ const {
   fetchDeviceInfo,
   streamToastShown,
   closeAppiumPanel: () => panelApi.close(),
+  closeDevicePanel: () => { showDevicePanel.value = false; },
 });
 
 const {
@@ -249,7 +250,7 @@ const {
 } = useHudPanels({
   onAppiumOpen: () => {
     loadAppiumPrefs();
-    refreshAppiumSettingsFromBackend();
+    refreshAppiumSettings();
   },
   onDeviceOpen: () => {
     refreshDiscoveryDevices();
@@ -543,7 +544,7 @@ function describeWsError(err) {
 
 onMounted(() => {
   loadAppiumPrefs();
-  refreshAppiumSettingsFromBackend();
+  refreshAppiumSettings();
   wsProxy.ensureConnection();
   window.addEventListener('resize', updateDisplayLayout);
 

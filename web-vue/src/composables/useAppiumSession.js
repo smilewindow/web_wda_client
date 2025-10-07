@@ -19,10 +19,12 @@ export function useAppiumSession(options) {
     fetchDeviceInfo,
     streamToastShown,
     closeAppiumPanel,
+    closeDevicePanel,
   } = options;
 
   const apSessionId = apSessionIdRef || ref((getLS('ap.sid', '') || '').trim());
   const safeCloseAppiumPanel = typeof closeAppiumPanel === 'function' ? closeAppiumPanel : noop;
+  const safeCloseDevicePanel = typeof closeDevicePanel === 'function' ? closeDevicePanel : noop;
 
   const appiumSettings = reactive({
     scale: Number(getLS('ap.scale', '60')) || 60,
@@ -62,7 +64,7 @@ export function useAppiumSession(options) {
 
     applyStreamMode();
     fetchDeviceInfo();
-    refreshAppiumSettingsFromBackend();
+    refreshAppiumSettings();
   });
 
   function clampAppiumSetting(value, min, max, fallback) {
@@ -80,7 +82,7 @@ export function useAppiumSession(options) {
     if (appiumSettings.quality !== quality) appiumSettings.quality = quality;
   }
 
-  async function refreshAppiumSettingsFromBackend() {
+  async function refreshAppiumSettings() {
     if (appiumSettingsFetching) return;
     const sid = apSessionId.value.trim();
     if (!sid) return;
@@ -191,7 +193,8 @@ export function useAppiumSession(options) {
         streamToastShown.value = false;
         reloadCurrentStream();
         fetchDeviceInfo();
-        refreshAppiumSettingsFromBackend();
+        refreshAppiumSettings();
+        safeCloseDevicePanel();
       } else {
         const msg = describeWsError(resp.error);
         toast(`创建失败: ${String(msg || JSON.stringify(data)).slice(0, 400)}`, 'err');
@@ -211,7 +214,7 @@ export function useAppiumSession(options) {
     apSessionId,
     appiumSettings,
     loadAppiumPrefs,
-    refreshAppiumSettingsFromBackend,
+    refreshAppiumSettings,
     applyAppiumSettings,
     createSessionWithUdid,
     hasAppiumSession,

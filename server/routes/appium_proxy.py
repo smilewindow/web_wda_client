@@ -103,7 +103,7 @@ async def api_appium_create(payload: Dict[str, Any]):
         "appium:wdaLocalPort": wda_port,
         "appium:mjpegServerPort": mjpeg_port,
         # "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner_ios_17-Runner.app",
-        # "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner-Runner.app",
+        "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner-Runner.app",
         # "appium:usePreinstalledWDA": True,
         # "appium:updatedWDABundleId": "net.xuyuqin.WebDriverAgentRunner",
         # "appium:useNewWDA": False,
