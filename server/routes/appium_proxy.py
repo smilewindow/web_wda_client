@@ -179,6 +179,7 @@ async def api_appium_create(payload: Dict[str, Any]):
     if no_reset is not None:
         caps["appium:noReset"] = bool(no_reset)
     try:
+        await stream_pusher.stop_stream(udid)
         core.logger.info(caps)
         sid, _driver = await ad.create_session(base, capabilities=caps)
         push_error = await stream_pusher.start_stream(udid, sid, base, mjpeg_port)
