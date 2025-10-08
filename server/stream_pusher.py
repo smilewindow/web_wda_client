@@ -1,8 +1,6 @@
 import asyncio
 import contextlib
 import os
-from datetime import datetime
-from pathlib import Path
 from typing import Dict, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -34,23 +32,15 @@ class _StreamState:
 
 def _build_ffmpeg_log_flags() -> list[str]:
     """构建FFmpeg日志级别标志"""
-    log_flags = []
+    log_flags: list[str] = []
 
-    # 添加详细的日志级别
-    if _FFMPEG_LOG_LEVEL in {"debug", "trace", "verbose"}:
+    if _FFMPEG_LOG_LEVEL:
         log_flags.extend(["-loglevel", _FFMPEG_LOG_LEVEL])
-        log_flags.extend(["-v", _FFMPEG_LOG_LEVEL])
+        if _FFMPEG_LOG_LEVEL in {"debug", "trace", "verbose"}:
+            log_flags.extend(["-v", _FFMPEG_LOG_LEVEL])
 
-    # 对于trace级别，添加更详细的调试信息
     if _FFMPEG_LOG_LEVEL in {"trace", "verbose"}:
-        log_flags.extend(["-report"])  # 生成报告文件
-        log_flags.extend(["-stats"])   # 显示编码统计
-        log_flags.extend(["-benchmark"])  # 性能基准测试
-
-    # 添加硬件加速调试信息
-    if _FFMPEG_LOG_LEVEL in {"debug", "trace"}:
-        log_flags.extend(["-hwaccels"])  # 显示可用的硬件加速器
-        log_flags.extend(["-filters"])  # 显示可用滤镜
+        log_flags.extend(["-report", "-stats", "-benchmark"])
 
     return log_flags
 
@@ -113,6 +103,7 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
 
     cmd = [
         FFMPEG_BIN,
+        *log_flags,
         # 取消输入缓冲，降低整体延迟
         "-fflags", "nobuffer",
         # 使用系统时钟作为时间戳，保持实时性
@@ -129,7 +120,7 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
         "-i", input_url,
         # 使用高质量缩放算法和完整色度处理
         "-sws_flags", "lanczos+accurate_rnd+full_chroma_int",
-        # 视频滤镜：限制25fps、缩放至720宽、PC转TV色彩范围、转换为YUV420格式
+        # 视频滤镜：限制30fps、缩放至720宽、PC转TV色彩范围、转换为YUV420格式
         "-vf", "fps=30,scale=720:-2,scale=in_range=pc:out_range=tv,format=yuv420p",
         # 使用软件H.264编码器
         "-c:v", "libx264",
@@ -139,7 +130,7 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
         "-tune", "zerolatency",
         # 使用High配置文件，提高压缩效率
         "-profile:v", "high",
-        # GOP长度50帧（约2秒）
+        # GOP长度60帧（约2秒）
         "-g", "60",
         # x264编码器参数：关闭B帧、固定GOP长度
         "-x264-params", "bframes=0:keyint=50:min-keyint=50",
@@ -199,7 +190,7 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
 
         # 记录推流关键参数
         core.logger.info(
-            "\033[1;36m📊 FFMPEG 推流参数\033[0m | 目标分辨率: 720x? | 帧率: 25 | 码率: 2500k | 硬件加速: 开启 | 调试级别: %s",
+            "\033[1;36m📊 FFMPEG 推流参数\033[0m | 输出: 720p | 帧率: 30 | 编码器: libx264 | 码控: CRF18 | 硬件加速: 关闭 | 调试级别: %s",
             _FFMPEG_LOG_LEVEL.upper()
         )
 
@@ -210,8 +201,13 @@ async def start_stream(udid: str, session_id: str, base_url: str, mjpeg_port: in
                 _FFMPEG_LOG_LEVEL.upper()
             )
 
-        # Log the full command - 使用INFO级别确保始终显示
-        core.logger.info("\033[1;36m🔧 FFMPEG 完整命令\033[0m | %s", " ".join(cmd))
+        # Log the full command（脱敏输出地址）
+        sanitized_cmd = cmd.copy()
+        sanitized_output = output_url.split("?", 1)[0]
+        if "?" in output_url:
+            sanitized_output = f"{sanitized_output}?***"
+        sanitized_cmd[-1] = sanitized_output
+        core.logger.info("\033[1;36m🔧 FFMPEG 完整命令\033[0m | %s", " ".join(sanitized_cmd))
     return None
 
 
