@@ -1,3 +1,6 @@
+import asyncio
+import os
+import time
 from typing import Any, Dict, Optional
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -10,6 +13,51 @@ import stream_pusher
 
 router = APIRouter()
 
+
+async def _restart_stream_async(
+    *,
+    udid: str,
+    session_id: str,
+    base_url: str,
+    mjpeg_port: int,
+) -> None:
+    core.logger.info(
+        "Starting stream push for udid=%s sid=%s",
+        udid,
+        session_id,
+    )
+
+    try:
+        push_error = await stream_pusher.start_stream(
+            udid,
+            session_id,
+            base_url,
+            mjpeg_port,
+            mode="mjpeg",
+        )
+        if push_error:
+            core.logger.error(
+                "Failed to start stream push for udid=%s sid=%s: %s",
+                udid,
+                session_id,
+                push_error,
+            )
+    except Exception:
+        core.logger.exception(
+            "Unexpected error when starting stream push: udid=%s sid=%s",
+            udid,
+            session_id,
+        )
+
+
+def _parse_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except Exception:
+        return default
 
 @router.post("/api/appium/settings")
 async def api_appium_set(payload: Dict[str, Any]):
@@ -103,7 +151,7 @@ async def api_appium_create(payload: Dict[str, Any]):
         "appium:wdaLocalPort": wda_port,
         "appium:mjpegServerPort": mjpeg_port,
         # "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner_ios_17-Runner.app",
-        "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner-Runner.app",
+        # "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner-Runner.app",
         # "appium:usePreinstalledWDA": True,
         # "appium:updatedWDABundleId": "net.xuyuqin.WebDriverAgentRunner",
         # "appium:useNewWDA": False,
@@ -126,7 +174,6 @@ async def api_appium_create(payload: Dict[str, Any]):
             "mjpegFixOrientation": False,
             "boundElementsByIndex": True,
             "maxTypingFrequency": 60,
-            "reduceMotion": False,
             "respectSystemAlerts": False,
             "elementResponseAttributes": "type,label",
             "screenshotOrientation": "auto",
@@ -158,20 +205,6 @@ async def api_appium_create(payload: Dict[str, Any]):
         for k, v in settings.items():
             extraCaps[f"appium:settings[{k}]"] = v
         caps.update(extraCaps)
-    #       const settings = {
-    #   // 截止每次“自定义快照”的最长期限（秒）——越小越快
-    #   customSnapshotTimeout: 10,
-    #   // 动画冷却时间（秒），优化操作响应（优化时统一设置）
-    #   animationCoolOffTimeout: 0,
-    #   // 限制可访问性树的遍历深度，明显缩短“请求快照”时间
-    #   snapshotMaxDepth: 20,
-    #   // 单元素查找走 firstMatch 快路径（若你还会用到元素定位）
-    #   useFirstMatch: true,
-    #   // 打开 iOS 的“降低动态效果”（减少系统层动画）
-    #   reduceMotion: true,
-    #   // 如果是分屏/浮窗导致“当前活跃 App”判断反复，可把命中点移到内容区
-    #   // activeAppDetectionPoint: "200,200"
-    # };
     except Exception:
         pass
     if bundle_id:
@@ -179,17 +212,21 @@ async def api_appium_create(payload: Dict[str, Any]):
     if no_reset is not None:
         caps["appium:noReset"] = bool(no_reset)
     try:
-        await stream_pusher.stop_stream(udid)
         core.logger.info(caps)
         sid, _driver = await ad.create_session(base, capabilities=caps)
-        push_error = await stream_pusher.start_stream(udid, sid, base, mjpeg_port)
-        if push_error:
-            core.logger.error(
-                "Failed to start stream push for udid=%s sid=%s: %s",
-                udid,
-                sid,
-                push_error,
+        asyncio.create_task(
+            _restart_stream_async(
+                udid=udid,
+                session_id=sid,
+                base_url=base,
+                mjpeg_port=mjpeg_port,
             )
+        )
+        core.logger.info(
+            "Scheduled stream restart for udid=%s sid=%s",
+            udid,
+            sid,
+        )
         # 为避免序列化问题，这里不返回 capabilities（某些实现包含不可 JSON 化对象）
         return {"sessionId": sid, "capabilities": None}
     except Exception as e:
