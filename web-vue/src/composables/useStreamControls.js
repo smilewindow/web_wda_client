@@ -24,7 +24,11 @@ export function useStreamControls(options) {
     isProd,
   } = options;
 
-  const streamMode = ref(readStreamMode(getLS));
+  const initialStreamMode = isProd ? 'webrtc' : readStreamMode(getLS);
+  if (isProd) {
+    setLS('stream.mode', 'webrtc');
+  }
+  const streamMode = ref(initialStreamMode);
   const pendingStreamMode = ref(streamMode.value);
   const viewZoomPct = ref(readViewZoom(getLS));
   const viewZoomLabel = computed(() => clampZoom(viewZoomPct.value));
