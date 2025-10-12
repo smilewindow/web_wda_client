@@ -13,7 +13,6 @@
       @toggle-pull="togglePullConfigPanel"
     />
     <button
-      v-if="isDev"
       class="btn gest-top-toggle"
       @click="toggleGesturePanel"
     >手势日志</button>
@@ -66,7 +65,6 @@
     <ToolbarControls @press="pressToolbarButton" @reload="reloadStreamClick" />
 
     <GesturesPanel
-      v-if="isDev"
       :visible="showGesturePanel"
       :gesture-log="gestureLog"
       :log-ref="gestLogRef"
