@@ -68,7 +68,6 @@
       :visible="showGesturePanel"
       :gesture-log="gestureLog"
       :log-ref="gestLogRef"
-      v-model:w3cTune="w3cTune"
       @close="showGesturePanel = false"
       @clear="clearGestureLog"
     />
@@ -413,14 +412,12 @@ function resizeOverlay() {
 }
 
 const {
-  w3cTune,
   gestureLog,
   gestLogRef,
   clearGestureLog,
   pressToolbarButton,
 } = useGestures({
   getLS,
-  setLS,
   wsProxy,
   toast,
   getAppiumSessionId,

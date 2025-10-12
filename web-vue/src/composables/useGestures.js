@@ -1,4 +1,4 @@
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import { ref, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import interact from 'interactjs';
 
 const WHEEL_THRESHOLD_PX = 16;
@@ -15,7 +15,6 @@ const LONGPRESS_TOTAL_MS = 1200;
 export function useGestures(options) {
   const {
     getLS,
-    setLS,
     wsProxy,
     toast,
     getAppiumSessionId,
@@ -27,7 +26,6 @@ export function useGestures(options) {
     getDisplayRect,
   } = options;
 
-  const w3cTune = ref(readW3CTune());
   const gestureLog = ref([]);
   const gestLogRef = ref(null);
   const mobileBusy = ref(false);
@@ -54,24 +52,6 @@ export function useGestures(options) {
   let gestureInteract = null;
   let wheelListener = null;
   let finalizeDragSession = null;
-
-  watch(w3cTune, (val) => {
-    const normalized = val === 'fast' ? val : 'fast';
-    if (normalized !== val) {
-      w3cTune.value = normalized;
-      return;
-    }
-    setLS('gest.w3c.tune', normalized);
-  });
-
-  function readW3CTune() {
-    const raw = String(getLS('gest.w3c.tune', 'fast') || 'fast');
-    const normalized = raw === 'fast' ? raw : 'fast';
-    if (normalized !== raw) {
-      setLS('gest.w3c.tune', normalized);
-    }
-    return normalized;
-  }
 
   function drawDot(x, y) {
     const cursor = cursorRef.value;
@@ -896,7 +876,6 @@ export function useGestures(options) {
   }
 
   return {
-    w3cTune,
     gestureLog,
     gestLogRef,
     clearGestureLog,

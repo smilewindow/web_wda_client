@@ -1,17 +1,7 @@
 <template>
   <div id="gest-panel" v-show="visible">
     <header>
-      <div class="row">
-        <label for="gest-w3c-tune" class="muted">滚动调优（W3C）</label>
-        <select
-          id="gest-w3c-tune"
-          :value="w3cTune"
-          @change="onTuneChange"
-          style="padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:#0f0f12;color:var(--fg)"
-        >
-          <option value="fast">fast（原始极速版）</option>
-        </select>
-      </div>
+      <span class="muted">手势日志</span>
       <button id="gest-close" class="btn" @click="$emit('close')">关闭</button>
     </header>
     <div class="body">
@@ -33,12 +23,11 @@ import { ref, watchEffect, watch, nextTick } from 'vue';
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
-  w3cTune: { type: String, default: 'fast' },
   gestureLog: { type: Array, default: () => [] },
   logRef: { type: Object, default: null },
 });
 
-const emit = defineEmits(['update:w3cTune', 'close', 'clear']);
+defineEmits(['close', 'clear']);
 
 const logEl = ref(null);
 
@@ -47,10 +36,6 @@ watchEffect(() => {
     props.logRef.value = logEl.value;
   }
 });
-
-function onTuneChange(event) {
-  emit('update:w3cTune', event.target.value === 'fast' ? 'fast' : 'fast');
-}
 
 watch(() => props.visible, (visible) => {
   if (!visible) return;
