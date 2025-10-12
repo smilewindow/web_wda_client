@@ -440,7 +440,6 @@ export function useGestures(options) {
     if (!last || t - last.t >= 10 || (dxs * dxs + dys * dys) >= 1) {
       globalDragState.dragTrace.push({ x: basis.x, y: basis.y, t });
       if (globalDragState.dragTrace.length > 80) globalDragState.dragTrace.splice(1, 1);
-      try { ev('global-drag-sample', { x: Math.round(basis.x), y: Math.round(basis.y), t }); } catch (_err) {}
     }
   }
 
@@ -669,12 +668,16 @@ export function useGestures(options) {
         // 已处理长按
       } else if (!dragStarted && dur >= getLongPressMs()) {
         const durMs = Math.max(getLongPressMs(), Math.round(dur));
+        const logX = Math.round(devicePtInfo.x);
+        const logY = Math.round(devicePtInfo.y);
         setMode('longPress');
-        ev('longPress', { at: { x: devicePtInfo.x, y: devicePtInfo.y }, durationMs: durMs });
+        ev('longPress', { at: { x: logX, y: logY }, durationMs: durMs });
         void longPressAt(devicePtInfo.x, devicePtInfo.y, durMs);
       } else if (!dragStarted && dur <= 250) {
+        const logX = Math.round(devicePtInfo.x);
+        const logY = Math.round(devicePtInfo.y);
         setMode('tap');
-        ev('tap', { at: { x: devicePtInfo.x, y: devicePtInfo.y } });
+        ev('tap', { at: { x: logX, y: logY } });
         void tapAt(devicePtInfo.x, devicePtInfo.y);
       } else if (dragStarted) {
         try {
@@ -729,7 +732,7 @@ export function useGestures(options) {
               const elapsed = Math.max(0, Math.round(performance.now() - downAt));
               const remain = Math.max(0, LONGPRESS_TOTAL_MS - elapsed);
               const durMs = Math.max(getLongPressMs(), remain || getLongPressMs());
-              ev('longPress', { at: { x: ptDown.x, y: ptDown.y }, durationMs: durMs });
+              ev('longPress', { at: { x: Math.round(ptDown.x), y: Math.round(ptDown.y) }, durationMs: durMs });
               void adapter.longPress(ptDown.x, ptDown.y, durMs);
             }, getLongPressMs());
             if (cursorEl && currRect) {
@@ -765,7 +768,6 @@ export function useGestures(options) {
               if (!last || t - last.t >= 10 || (dxs * dxs + dys * dys) >= 1) {
                 dragTrace.push({ x: basis.x, y: basis.y, t });
                 if (dragTrace.length > 80) dragTrace.splice(1, 1);
-                try { ev('sample', { x: Math.round(basis.x), y: Math.round(basis.y), t }); } catch (_err) {}
               }
             }
           })
