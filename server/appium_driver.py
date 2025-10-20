@@ -30,6 +30,9 @@ except Exception:  # pragma: no cover
 _DRIVERS: Dict[Tuple[str, str], Any] = {}
 # 记录每个 base 最近一次用于创建会话的 capabilities，便于自动重建
 _LAST_CAPS: Dict[str, Dict[str, Any]] = {}
+# 会话映射：按 base 维护 udid <-> sessionId 双向关系，便于外部查询
+_UDID_TO_SESSION: Dict[Tuple[str, str], str] = {}
+_SESSION_TO_UDID: Dict[Tuple[str, str], str] = {}
 
 
 def _key(base: str, sid: str) -> Tuple[str, str]:
@@ -42,6 +45,31 @@ class AppiumInvalidSession(RuntimeError):
     路由层可据此返回 410，让前端重建会话。
     """
     pass
+
+
+def _udid_key(base: str, udid: str) -> Tuple[str, str]:
+    return (base.rstrip("/"), udid)
+
+
+def _register_session(base: str, sid: str, udid: Optional[str]) -> None:
+    if not udid:
+        return
+    b = base.rstrip("/")
+    key_udid = _udid_key(b, udid)
+    key_session = _key(b, sid)
+    prev_sid = _UDID_TO_SESSION.get(key_udid)
+    if prev_sid:
+        _SESSION_TO_UDID.pop(_key(b, prev_sid), None)
+    _UDID_TO_SESSION[key_udid] = sid
+    _SESSION_TO_UDID[key_session] = udid
+
+
+def _forget_session(base: str, sid: str) -> None:
+    b = base.rstrip("/")
+    session_key = _key(b, sid)
+    udid = _SESSION_TO_UDID.pop(session_key, None)
+    if udid:
+        _UDID_TO_SESSION.pop(_udid_key(b, udid), None)
 
 
 def invalidate_session(base: str, sid: str) -> None:
@@ -63,6 +91,7 @@ def invalidate_session(base: str, sid: str) -> None:
             logging.getLogger("wda.web").info(
                 f"appium invalidate-session: base={b} sid={sid} cache_cleared=True"
             )
+    _forget_session(base, sid)
     # 若最新标记指向该 sid，则一并移除
     try:
         if core.APPIUM_LATEST.get(b) == sid:
@@ -142,7 +171,30 @@ async def create_session(base: str, capabilities: Dict[str, Any]) -> Tuple[str, 
         except Exception:
             pass
         raise RuntimeError("Failed to obtain Appium sessionId from driver")
+    udid = None
+    try:
+        if isinstance(capabilities, dict):
+            udid = (
+                str(capabilities.get("appium:udid") or capabilities.get("udid") or "").strip()
+            ) or None
+    except Exception:
+        udid = None
+    if not udid:
+        try:
+            caps_ret = getattr(driver, "capabilities", {}) or {}
+            if isinstance(caps_ret, dict):
+                udid = (
+                    str(
+                        caps_ret.get("udid")
+                        or caps_ret.get("appium:udid")
+                        or caps_ret.get("desired", {}).get("udid")
+                    ).strip()
+                ) or None
+        except Exception:
+            udid = None
     _DRIVERS[_key(b, sid)] = driver
+    if udid:
+        _register_session(base, sid, udid)
     try:
         core.APPIUM_LATEST[b] = sid
     except Exception:
@@ -331,3 +383,9 @@ def list_sessions(base: str) -> List[str]:
         if bb == b:
             res.append(sid)
     return res
+
+
+def get_session_by_udid(base: str, udid: str) -> Optional[str]:
+    if not udid:
+        return None
+    return _UDID_TO_SESSION.get(_udid_key(base, udid.strip()))

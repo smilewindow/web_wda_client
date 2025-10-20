@@ -21,12 +21,12 @@ async def _restart_stream_async(
     base_url: str,
     mjpeg_port: int,
 ) -> None:
+    return
     core.logger.info(
         "Starting stream push for udid=%s sid=%s",
         udid,
         session_id,
     )
-
     try:
         push_error = await stream_pusher.start_stream(
             udid,
@@ -154,7 +154,7 @@ async def api_appium_create(payload: Dict[str, Any]):
         # "appium:prebuiltWDAPath": "/Users/xuyuqin/Desktop/WebDriverAgentRunner-Runner.app",
         # "appium:usePreinstalledWDA": True,
         # "appium:updatedWDABundleId": "net.xuyuqin.WebDriverAgentRunner",
-        # "appium:useNewWDA": False,
+        # "appium:useNewWDA": True,
         "appium:wdaLaunchTimeout": 30000,
         "appium:wdaStartupRetries": 2,
         "appium:wdaStartupRetryInterval": 5000,
@@ -179,8 +179,8 @@ async def api_appium_create(payload: Dict[str, Any]):
             "screenshotOrientation": "auto",
             "keyboardPrediction": 0,
             "defaultActiveApplication": "auto",
-            "mjpegServerScreenshotQuality": 5,
-            "mjpegServerFramerate": 30,
+            "mjpegServerScreenshotQuality": 1,
+            "mjpegServerFramerate": 10, # idb时设置成1
             "mjpegScalingFactor": 100,
             # "mjpegServerEnableScaling": True,
             # "mjpegServerScreenshotScale": 0.5,
@@ -199,7 +199,12 @@ async def api_appium_create(payload: Dict[str, Any]):
             "includeNonModalElements": False,
             "acceptAlertButtonSelector": "",
             "animationCoolOffTimeout": 0,
+            "rtmpStreamEnabled": True, # 开启 RTMP 推流功能
+            # "rtmpStreamUrl": "rtmp://encoder:s3cret@192.168.124.2:1935/phone/00008101-00061D481E61001E/e5bdaae0-63af-4eb5-86b1-33e9e57d4edb",
+            "rtmpStreamUrl": "rtmp://192.168.124.8:1935", # RTMP 推流地址
+            "backendBaseUrl": core.BACKEND_BASE_LAN,
         }
+        core.logger.info(f"backendBaseUrl: {core.BACKEND_BASE_LAN}")
         extraCaps: Dict[str, Any] = {}
         # 把 settings 作为 capabilities 注入（关键：appium:settings[<name>] 这种写法）
         for k, v in settings.items():
@@ -247,6 +252,27 @@ async def api_appium_last_session():
     except Exception:
         pass
     return {"sessionId": None, "ok": False}
+
+
+@router.get("/api/appium/session-id")
+async def api_appium_session_id(udid: Optional[str] = None):
+    base = core.APPIUM_BASE
+    if not udid or not isinstance(udid, str):
+        return JSONResponse({"error": "query param udid is required"}, status_code=400)
+    udid_clean = udid.strip()
+    if not udid_clean:
+        return JSONResponse({"error": "query param udid is required"}, status_code=400)
+    sid = ad.get_session_by_udid(base, udid_clean)
+    if not sid:
+        return JSONResponse(
+            {
+                "error": "Appium session not found for udid",
+                "udid": udid_clean,
+                "sessionId": None,
+            },
+            status_code=404,
+        )
+    return {"sessionId": sid, "udid": udid_clean}
 
 
 @router.post("/api/appium/exec-mobile")

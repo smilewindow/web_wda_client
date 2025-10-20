@@ -142,7 +142,7 @@ async def _start_stream_with_mjpeg(
         "-sws_flags",
         "lanczos+accurate_rnd+full_chroma_int",
         "-vf",
-        "fps=30,scale=720:-2,scale=in_range=pc:out_range=tv,format=yuv420p",
+        "fps=30,scale=720:-2,scale=in_range=pc:out_range=tv,format=yuv420p", # 720p, 30fps, yuv420p
         "-c:v",
         "libx264",
         "-preset",
@@ -152,7 +152,7 @@ async def _start_stream_with_mjpeg(
         "-profile:v",
         "high",
         "-g",
-        "60",
+        "60", # keyframe every 2 seconds at 30fps
         "-x264-params",
         "bframes=0:keyint=50:min-keyint=50",
         "-crf",
@@ -242,6 +242,8 @@ async def _start_stream_with_idb(
         "30",
         "--format",
         "h264",
+        "--compression-quality",
+        "0.1",
     ]
 
     ffmpeg_cmd = [
@@ -249,11 +251,7 @@ async def _start_stream_with_idb(
         *log_flags,
         "-hide_banner",
         "-fflags",
-        "+genpts+nobuffer",
-        "-use_wallclock_as_timestamps",
-        "1",
-        "-avoid_negative_ts",
-        "make_zero",
+        "+genpts",
         "-r",
         "30",
         "-f",
@@ -263,12 +261,6 @@ async def _start_stream_with_idb(
         "-c:v",
         "copy",
         "-an",
-        "-rtmp_live",
-        "live",
-        "-rtmp_buffer",
-        "100",
-        "-flvflags",
-        "no_duration_filesize",
         "-f",
         "flv",
         output_url,

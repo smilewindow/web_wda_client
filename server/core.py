@@ -1,6 +1,9 @@
-import os
+import ipaddress
 import logging
+import os
+import socket
 from typing import Dict, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -13,6 +16,116 @@ DISCOVERY_BASE = _DISCOVERY_BASE_ENV.rstrip("/") if _DISCOVERY_BASE_ENV else ""
 
 # Track last created Appium session per base
 APPIUM_LATEST: Dict[str, str] = {}
+
+
+def _pick_private(candidates: list[str], preferred_prefix: str) -> Optional[str]:
+    for cand in candidates:
+        try:
+            ip_obj = ipaddress.ip_address(cand)
+        except ValueError:
+            continue
+        if ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved or ip_obj.is_multicast:
+            continue
+        if not ip_obj.is_private:
+            continue
+        if preferred_prefix and not cand.startswith(preferred_prefix):
+            continue
+        return cand
+    return None
+
+
+def _guess_lan_ip() -> str:
+    override = (os.environ.get("LAN_IP") or os.environ.get("APP_LAN_IP") or "").strip()
+    if override:
+        return override
+
+    preferred_prefix = (os.environ.get("LAN_IP_PREFERRED_PREFIX") or "").strip()
+    candidates: list[str] = []
+
+    parsed = urlparse(APPIUM_BASE)
+    if parsed.hostname:
+        candidates.append(parsed.hostname)
+
+    try:
+        infos = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+        for info in infos:
+            addr = info[4][0]
+            candidates.append(addr)
+    except Exception:
+        pass
+
+    try:
+        host_ips = socket.gethostbyname_ex(socket.gethostname())[2]
+        candidates.extend(host_ips)
+    except Exception:
+        pass
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("8.8.8.8", 80))
+            ip = probe.getsockname()[0]
+            candidates.append(ip)
+    except Exception:
+        pass
+
+    seen = set()
+    deduped = []
+    for cand in candidates:
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
+        deduped.append(cand)
+
+    chosen = _pick_private(deduped, preferred_prefix)
+    if not chosen and preferred_prefix:
+        chosen = _pick_private(deduped, preferred_prefix="")
+    if chosen:
+        return chosen
+
+    for cand in deduped:
+        try:
+            ip_obj = ipaddress.ip_address(cand)
+        except ValueError:
+            continue
+        if ip_obj.is_loopback:
+            continue
+        return cand
+
+    return "127.0.0.1"
+
+
+def _build_lan_appium_base() -> str:
+    override = (os.environ.get("APPIUM_BASE_LAN") or os.environ.get("APPIUM_BASE_URL") or "").strip()
+    if override:
+        return override.rstrip("/")
+    parsed = urlparse(APPIUM_BASE)
+    scheme = parsed.scheme or "http"
+    port = parsed.port
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    host = _guess_lan_ip()
+    return f"{scheme}://{host}:{port}".rstrip("/")
+
+
+APPIUM_BASE_LAN = _build_lan_appium_base()
+
+
+def _build_backend_base() -> str:
+    override = (os.environ.get("BACKEND_BASE_LAN") or os.environ.get("BACKEND_BASE_URL") or "").strip()
+    if override:
+        return override.rstrip("/")
+    port_raw = os.environ.get("BACKEND_PORT", "7070").strip()
+    try:
+        port = int(port_raw)
+    except Exception:
+        port = 7070
+    if port <= 0:
+        port = 7070
+    host = _guess_lan_ip()
+    return f"http://{host}:{port}".rstrip("/")
+
+
+BACKEND_BASE_LAN = _build_backend_base()
 
 # Logger
 logger = logging.getLogger("wda.web")
