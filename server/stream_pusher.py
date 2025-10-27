@@ -55,7 +55,7 @@ _LOCK = asyncio.Lock()
 
 def _build_output_url(udid: str, session_id: str) -> tuple[str, str]:
     """生成推流输出地址及脱敏版本"""
-    output_url = f"{RTMP_BASE}/iphone/{udid}/{session_id}"
+    output_url = f"{RTMP_BASE}/iphone/{udid}"
     credentials = {"user": RTMP_USER, "pass": RTMP_PASS}
     if credentials["user"] or credentials["pass"]:
         query = urlencode(credentials)

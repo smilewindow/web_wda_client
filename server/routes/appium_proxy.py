@@ -20,7 +20,6 @@ async def _restart_stream_async(
     base_url: str,
     mjpeg_port: int,
 ) -> None:
-    return
     core.logger.info(
         "Starting stream push for udid=%s sid=%s",
         udid,
@@ -32,7 +31,7 @@ async def _restart_stream_async(
             session_id,
             base_url,
             mjpeg_port,
-            mode="mjpeg",
+            mode="idb",
         )
         if push_error:
             core.logger.error(
@@ -213,7 +212,7 @@ async def api_appium_create(payload: Dict[str, Any]):
             "includeNonModalElements": False,
             "acceptAlertButtonSelector": "",
             "animationCoolOffTimeout": 0,
-            "rtmpStreamEnabled": True, # 开启 RTMP 推流功能
+            "rtmpStreamEnabled": False, # 开启 RTMP 推流功能
             # "rtmpStreamUrl": "rtmp://encoder:s3cret@192.168.124.2:1935/phone/00008101-00061D481E61001E/e5bdaae0-63af-4eb5-86b1-33e9e57d4edb",
             "rtmpStreamUrl": stream_pusher.RTMP_BASE, # RTMP 推流地址
             "rtmpStreamVideoPreset": rtmp_stream_preset,
@@ -232,21 +231,16 @@ async def api_appium_create(payload: Dict[str, Any]):
     if no_reset is not None:
         caps["appium:noReset"] = bool(no_reset)
     try:
-        core.logger.info(caps)
-        sid, _driver = await ad.create_session(base, capabilities=caps)
         asyncio.create_task(
             _restart_stream_async(
                 udid=udid,
-                session_id=sid,
+                session_id="bf033ded-3221-4fbe-af3c-67e1fd260aaa",
                 base_url=base,
                 mjpeg_port=mjpeg_port,
             )
         )
-        core.logger.info(
-            "Scheduled stream restart for udid=%s sid=%s",
-            udid,
-            sid,
-        )
+        core.logger.info(caps)
+        sid, _driver = await ad.create_session(base, capabilities=caps)
         # 为避免序列化问题，这里不返回 capabilities（某些实现包含不可 JSON 化对象）
         return {"sessionId": sid, "capabilities": None}
     except Exception as e:
