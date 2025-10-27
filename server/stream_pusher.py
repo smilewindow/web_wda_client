@@ -9,7 +9,7 @@ import core
 
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
 RTMP_BASE = os.environ.get(
-    "RTMP_PUSH_BASE", "rtmp://127.0.0.1:1935/iphone").rstrip("/")
+    "RTMP_PUSH_BASE", "rtmp://127.0.0.1:1935").rstrip("/")
 RTMP_USER = os.environ.get("RTMP_PUSH_USER", "encoder")
 RTMP_PASS = os.environ.get("RTMP_PUSH_PASS", "s3cret")
 ENABLE_PUSH = os.environ.get("ENABLE_STREAM_PUSH", "true").lower() in {
@@ -55,7 +55,7 @@ _LOCK = asyncio.Lock()
 
 def _build_output_url(udid: str, session_id: str) -> tuple[str, str]:
     """生成推流输出地址及脱敏版本"""
-    output_url = f"{RTMP_BASE}/{udid}/{session_id}"
+    output_url = f"{RTMP_BASE}/iphone/{udid}/{session_id}"
     credentials = {"user": RTMP_USER, "pass": RTMP_PASS}
     if credentials["user"] or credentials["pass"]:
         query = urlencode(credentials)
@@ -251,7 +251,7 @@ async def _start_stream_with_idb(
         *log_flags,
         "-hide_banner",
         "-fflags",
-        "+genpts",
+        "+genpts+nobuffer",
         "-r",
         "30",
         "-f",
@@ -260,7 +260,13 @@ async def _start_stream_with_idb(
         "pipe:0",
         "-c:v",
         "copy",
+        "-bsf:v",
+        "dump_extra",
         "-an",
+        "-flvflags",
+        "no_duration_filesize",
+        "-flush_packets",
+        "1",
         "-f",
         "flv",
         output_url,

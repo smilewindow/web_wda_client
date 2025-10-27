@@ -1,6 +1,5 @@
 import asyncio
 import os
-import time
 from typing import Any, Dict, Optional
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -58,6 +57,7 @@ def _parse_float_env(name: str, default: float) -> float:
         return float(raw)
     except Exception:
         return default
+
 
 @router.post("/api/appium/settings")
 async def api_appium_set(payload: Dict[str, Any]):
@@ -131,6 +131,19 @@ async def api_appium_sessions():
     return {"sessions": ad.list_sessions(base)}
 
 
+PRESET_CHOICES = ("1080p", "720p", "480p", "360p")
+DEFAULT_PRESET = "720p"
+
+
+def _normalize_preset(raw: Any) -> str:
+    if not raw:
+        return DEFAULT_PRESET
+    preset = str(raw).strip()
+    if preset in PRESET_CHOICES:
+        return preset
+    return DEFAULT_PRESET
+
+
 @router.post("/api/appium/create")
 async def api_appium_create(payload: Dict[str, Any]):
     base = core.APPIUM_BASE
@@ -141,6 +154,7 @@ async def api_appium_create(payload: Dict[str, Any]):
     bundle_id = payload.get("bundleId")
     no_reset = payload.get("noReset")
     new_cmd_to = payload.get("newCommandTimeout", 0)
+    rtmp_stream_preset = _normalize_preset(payload.get("rtmpStreamVideoPreset"))
     if not udid:
         return JSONResponse({"error": "udid is required"}, status_code=400)
     # 基础能力（按推荐默认值；旧项保留为注释便于回滚/对照）
@@ -180,7 +194,7 @@ async def api_appium_create(payload: Dict[str, Any]):
             "keyboardPrediction": 0,
             "defaultActiveApplication": "auto",
             "mjpegServerScreenshotQuality": 1,
-            "mjpegServerFramerate": 10, # idb时设置成1
+            "mjpegServerFramerate": 15, # idb时设置成1
             "mjpegScalingFactor": 100,
             # "mjpegServerEnableScaling": True,
             # "mjpegServerScreenshotScale": 0.5,
@@ -201,7 +215,8 @@ async def api_appium_create(payload: Dict[str, Any]):
             "animationCoolOffTimeout": 0,
             "rtmpStreamEnabled": True, # 开启 RTMP 推流功能
             # "rtmpStreamUrl": "rtmp://encoder:s3cret@192.168.124.2:1935/phone/00008101-00061D481E61001E/e5bdaae0-63af-4eb5-86b1-33e9e57d4edb",
-            "rtmpStreamUrl": "rtmp://192.168.124.8:1935", # RTMP 推流地址
+            "rtmpStreamUrl": stream_pusher.RTMP_BASE, # RTMP 推流地址
+            "rtmpStreamVideoPreset": rtmp_stream_preset,
             "backendBaseUrl": core.BACKEND_BASE_LAN,
         }
         core.logger.info(f"backendBaseUrl: {core.BACKEND_BASE_LAN}")
