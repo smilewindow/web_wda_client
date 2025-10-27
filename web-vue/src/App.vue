@@ -5,12 +5,15 @@
     <HudControlBar
       :hud-size-text="hudSizeText"
       :is-dev="isDev"
+      :preset="streamPreset"
+      :preset-options="streamPresetOptions"
       @toggle-appium="toggleAppiumPanel"
       @toggle-device="toggleDevicePanel"
       @toggle-zoom="toggleZoomPanel"
       @toggle-stream="toggleStreamPanel"
       @toggle-ws="toggleWsConfigPanel"
       @toggle-pull="togglePullConfigPanel"
+      @change-preset="setStreamPreset"
     />
     <button
       class="btn gest-top-toggle"
@@ -57,6 +60,13 @@
           allow="autoplay; fullscreen; picture-in-picture"
           title="WebRTC Stream"
         ></iframe>
+          <!-- <iframe
+          id="webrtc"
+          ref="webrtcRef"
+          src="http://127.0.0.1:8889/iphone/00008101-00061D481E61001E/bf033ded-3221-4fbe-af3c-67e1fd260aaa/"
+          allow="autoplay; fullscreen; picture-in-picture"
+          title="WebRTC Stream"
+        ></iframe> -->
         <canvas id="overlay" ref="canvasRef"></canvas>
         <div class="cursor" id="cursor" ref="cursorRef"></div>
       </div>
@@ -110,6 +120,7 @@ import { useStreamControls } from './composables/useStreamControls';
 import { useAppiumSession } from './composables/useAppiumSession';
 
 import { useGestures } from './composables/useGestures';
+import { STREAM_PRESETS, DEFAULT_STREAM_PRESET, normalizeStreamPreset } from './utils/streamPresets';
 
 const { pushToast } = useToastStore();
 const isDev = import.meta.env.DEV;
@@ -145,6 +156,15 @@ const devicePt = reactive({ w: null, h: null });
 const devicePx = reactive({ w: null, h: null });
 const streamReady = ref(false);
 const streamToastShown = ref(false);
+const streamPresetOptions = STREAM_PRESETS;
+const streamPreset = ref(normalizeStreamPreset(getLS('ap.streamPreset', DEFAULT_STREAM_PRESET)));
+
+function setStreamPreset(nextPreset) {
+  const normalized = normalizeStreamPreset(nextPreset);
+  if (streamPreset.value === normalized) return;
+  streamPreset.value = normalized;
+  setLS('ap.streamPreset', normalized);
+}
 
 const hudSizeText = computed(() => {
   const pt = devicePt.w && devicePt.h ? `pt ${devicePt.w}×${devicePt.h}` : 'pt -×-';
@@ -477,7 +497,7 @@ async function fetchDeviceInfo() {
 async function handleCreateDeviceSession(device) {
   const udid = String((device && device.udid) || '').trim();
   const osVersion = String((device && device.osVersion) || '').trim();
-  createSessionWithUdid(udid, osVersion);
+  createSessionWithUdid(udid, osVersion, streamPreset.value);
 }
 
 async function refreshDiscoveryDevices() {
@@ -609,4 +629,5 @@ function applyViewZoom(pct) {
   min-height: 100vh;
   position: relative;
 }
+
 </style>

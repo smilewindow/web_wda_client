@@ -1,4 +1,5 @@
 import { ref, reactive, watch } from 'vue';
+import { DEFAULT_STREAM_PRESET, normalizeStreamPreset } from '../utils/streamPresets';
 const noop = () => {};
 
 export function useAppiumSession(options) {
@@ -167,9 +168,10 @@ export function useAppiumSession(options) {
     }
   }
 
-  async function createSessionWithUdid(rawUdid, rawOsVersion) {
+  async function createSessionWithUdid(rawUdid, rawOsVersion, rawStreamPreset) {
     const udid = String(rawUdid || '').trim();
     const osVersion = String(rawOsVersion || '').trim();
+    const rtmpStreamVideoPreset = normalizeStreamPreset(rawStreamPreset || DEFAULT_STREAM_PRESET);
     if (!udid) {
       toast('该设备缺少 UDID，无法创建会话。', 'err');
       return;
@@ -182,6 +184,7 @@ export function useAppiumSession(options) {
         mjpegServerPort: 9100,
         bundleId: 'com.apple.Preferences',
         noReset: true,
+        rtmpStreamVideoPreset,
       });
       const data = resp.data || {};
       if (resp.ok && data.sessionId) {
