@@ -63,7 +63,7 @@
           <!-- <iframe
           id="webrtc"
           ref="webrtcRef"
-          src="http://127.0.0.1:8889/iphone/00008101-00061D481E61001E/bf033ded-3221-4fbe-af3c-67e1fd260aaa/"
+          src="http://127.0.0.1:8889/iphone/00008101-00061D481E61001E/"
           allow="autoplay; fullscreen; picture-in-picture"
           title="WebRTC Stream"
         ></iframe> -->

@@ -109,7 +109,6 @@ export function useStreamControls(options) {
       webrtcSrc.value = buildWebRTCUrl(
         trimTrailingSlashes(webrtcBase.value || defaultWebrtcBase),
         getLS('ap.udid', 'default'),
-        apSessionId.value || 'default',
       );
       mjpegSrc.value = '';
     } else {
@@ -129,7 +128,6 @@ export function useStreamControls(options) {
       const base = buildWebRTCUrl(
         trimTrailingSlashes(webrtcBase.value || defaultWebrtcBase),
         getLS('ap.udid', 'default'),
-        apSessionId.value || 'default',
       );
       webrtcSrc.value = `${base}#${Math.random()}`;
     } else {
@@ -300,9 +298,8 @@ function resolveWebrtcBaseInput(raw, defaultWebrtcBase) {
   }
 }
 
-function buildWebRTCUrl(base, udid, sessionId) {
+function buildWebRTCUrl(base, udid) {
   const id = encodeURIComponent(String(udid || ''));
-  const sid = encodeURIComponent(String(sessionId || ''));
-  const url = `${base}/${id}/${sid}`;
+  const url = `${base}/${id}`;
   return url + (url.includes('?') ? '&' : '?') + WEBRTC_QUERY_SUFFIX;
 }
