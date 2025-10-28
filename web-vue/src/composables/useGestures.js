@@ -824,7 +824,7 @@ export function useGestures(options) {
     if (kind === 'home') {
       mobileExec('mobile: pressButton', { name: 'home' }, 'Home');
     } else if (kind === 'lock') {
-      mobileExec('mobile: pressButton', { name: 'lock' }, '锁屏');
+      mobileExec('mobile: lock', {}, '锁屏');
     } else if (kind === 'volUp') {
       mobileExec('mobile: pressButton', { name: 'volumeUp' }, '音量+');
     } else if (kind === 'volDown') {
