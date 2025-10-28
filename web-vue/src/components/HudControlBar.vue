@@ -9,7 +9,6 @@
       <div class="control-row">
         <button class="btn" id="btn-zoom-panel" @click="$emit('toggle-zoom')">画面缩放</button>
         <template v-if="isDev">
-          <button class="btn" id="btn-stream-panel" @click="$emit('toggle-stream')">流源切换</button>
           <button class="btn" id="btn-ws-config" @click="$emit('toggle-ws')">WebSocket 配置</button>
           <button class="btn" id="btn-pull-config" @click="$emit('toggle-pull')">拉流配置</button>
         </template>
@@ -51,7 +50,6 @@ const emit = defineEmits([
   'toggle-appium',
   'toggle-device',
   'toggle-zoom',
-  'toggle-stream',
   'toggle-ws',
   'toggle-pull',
   'change-preset',

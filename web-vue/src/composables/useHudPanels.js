@@ -10,7 +10,6 @@ export function useHudPanels(options = {}) {
     onDeviceOpen,
     onGestureOpen,
     onZoomOpen,
-    onStreamOpen,
     onWsConfigOpen,
     onPullConfigOpen,
   } = options;
@@ -19,13 +18,11 @@ export function useHudPanels(options = {}) {
   const showDevicePanel = ref(false);
   const showGesturePanel = ref(false);
   const showZoomPanel = ref(false);
-  const showStreamPanel = ref(false);
   const showWsConfigPanel = ref(false);
   const showPullConfigPanel = ref(false);
 
   const closeTransientPanels = () => {
     showZoomPanel.value = false;
-    showStreamPanel.value = false;
     showWsConfigPanel.value = false;
     showPullConfigPanel.value = false;
   };
@@ -44,10 +41,6 @@ export function useHudPanels(options = {}) {
 
   watch(showZoomPanel, (visible) => {
     if (visible && typeof onZoomOpen === 'function') onZoomOpen();
-  });
-
-  watch(showStreamPanel, (visible) => {
-    if (visible && typeof onStreamOpen === 'function') onStreamOpen();
   });
 
   watch(showWsConfigPanel, (visible) => {
@@ -70,12 +63,6 @@ export function useHudPanels(options = {}) {
     showZoomPanel.value = next;
   };
 
-  const toggleStreamPanel = () => {
-    const next = !showStreamPanel.value;
-    closeTransientPanels();
-    showStreamPanel.value = next;
-  };
-
   const toggleWsConfigPanel = () => {
     const next = !showWsConfigPanel.value;
     closeTransientPanels();
@@ -93,7 +80,6 @@ export function useHudPanels(options = {}) {
     showDevicePanel,
     showGesturePanel,
     showZoomPanel,
-    showStreamPanel,
     showWsConfigPanel,
     showPullConfigPanel,
     openAppiumPanel,
@@ -102,7 +88,6 @@ export function useHudPanels(options = {}) {
     toggleDevicePanel,
     toggleGesturePanel,
     toggleZoomPanel,
-    toggleStreamPanel,
     toggleWsConfigPanel,
     togglePullConfigPanel,
     closeTransientPanels,

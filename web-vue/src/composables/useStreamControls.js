@@ -19,17 +19,9 @@ export function useStreamControls(options) {
     hasAppiumSession,
     apSessionId,
     streamReady,
-    streamToastShown,
     applyViewZoom,
-    isProd,
   } = options;
 
-  const initialStreamMode = isProd ? 'webrtc' : readStreamMode(getLS);
-  if (isProd) {
-    setLS('stream.mode', 'webrtc');
-  }
-  const streamMode = ref(initialStreamMode);
-  const pendingStreamMode = ref(streamMode.value);
   const viewZoomPct = ref(readViewZoom(getLS));
   const viewZoomLabel = computed(() => clampZoom(viewZoomPct.value));
 
@@ -78,12 +70,6 @@ export function useStreamControls(options) {
     }
   }
 
-  watch(streamMode, (val) => {
-    setLS('stream.mode', val === 'webrtc' ? 'webrtc' : 'mjpeg');
-    pendingStreamMode.value = val;
-    applyStreamMode();
-  });
-
   watch(viewZoomPct, (val) => {
     const clamped = clampZoom(val);
     if (clamped !== val) {
@@ -101,20 +87,13 @@ export function useStreamControls(options) {
     if (!hasAppiumSession()) {
       mjpegSrc.value = '';
       webrtcSrc.value = '';
-      if (!isProd && streamMode.value !== 'mjpeg') streamMode.value = 'mjpeg';
       updateDisplayLayout();
       return;
     }
-    if (streamMode.value === 'webrtc') {
-      webrtcSrc.value = buildWebRTCUrl(
-        trimTrailingSlashes(webrtcBase.value || defaultWebrtcBase),
-        getLS('ap.udid', 'default'),
-      );
-      mjpegSrc.value = '';
-    } else {
-      mjpegSrc.value = `${httpBase}/stream?${Date.now()}`;
-      webrtcSrc.value = '';
-    }
+    const mjpegUrl = nextMjpegUrl(httpBase);
+    const webrtcUrl = nextWebrtcUrl();
+    mjpegSrc.value = mjpegUrl;
+    webrtcSrc.value = webrtcUrl;
     nextTick(() => {
       updateDisplayLayout();
     });
@@ -124,25 +103,11 @@ export function useStreamControls(options) {
     streamReady.value = false;
     updateCursor();
     if (!hasAppiumSession()) return;
-    if (streamMode.value === 'webrtc') {
-      const base = buildWebRTCUrl(
-        trimTrailingSlashes(webrtcBase.value || defaultWebrtcBase),
-        getLS('ap.udid', 'default'),
-      );
-      webrtcSrc.value = `${base}#${Math.random()}`;
-    } else {
-      const httpBase = trimTrailingSlashes(apiBase.value || defaultApiBase);
-      mjpegSrc.value = `${httpBase}/stream?${Date.now()}`;
-    }
-  }
-
-  function applyStreamSelection() {
-    if (!hasAppiumSession()) {
-      toast('请先获取或创建 Appium 会话后再应用流源。', 'err');
-      return;
-    }
-    streamMode.value = pendingStreamMode.value === 'webrtc' ? 'webrtc' : 'mjpeg';
-    toast('流源设置已应用', 'ok');
+    const httpBase = trimTrailingSlashes(apiBase.value || defaultApiBase);
+    const mjpegUrl = nextMjpegUrl(httpBase);
+    const webrtcUrl = nextWebrtcUrl(true);
+    mjpegSrc.value = mjpegUrl;
+    webrtcSrc.value = webrtcUrl;
   }
 
   function applyWsConfig() {
@@ -183,7 +148,6 @@ export function useStreamControls(options) {
     webrtcBase.value = resolvedWebrtc.base;
     applyStreamMode();
     reloadCurrentStream();
-    pendingStreamMode.value = streamMode.value;
     toast('拉流地址已更新', 'ok');
     closeTransientPanels();
   }
@@ -195,10 +159,6 @@ export function useStreamControls(options) {
     }
   }
 
-  const syncStreamPanel = () => {
-    pendingStreamMode.value = streamMode.value;
-  };
-
   const syncWsConfigPanel = () => {
     wsHostInput.value = wsHostPort.value;
   };
@@ -207,9 +167,23 @@ export function useStreamControls(options) {
     webrtcHostInput.value = streamWebrtcHost.value;
   };
 
+  function nextMjpegUrl(httpBase) {
+    const base = trimTrailingSlashes(httpBase || apiBase.value || defaultApiBase);
+    return `${base}/stream?${Date.now()}`;
+  }
+
+  function nextWebrtcUrl(withBust = false) {
+    const base = buildWebRTCUrl(
+      trimTrailingSlashes(webrtcBase.value || defaultWebrtcBase),
+      getLS('ap.udid', 'default'),
+    );
+    if (withBust) {
+      return `${base}#${Math.random()}`;
+    }
+    return base;
+  }
+
   return {
-    streamMode,
-    pendingStreamMode,
     viewZoomPct,
     viewZoomLabel,
     wsHostPort,
@@ -220,10 +194,8 @@ export function useStreamControls(options) {
     webrtcSrc,
     applyStreamMode,
     reloadCurrentStream,
-    applyStreamSelection,
     applyWsConfig,
     applyStreamConfig,
-    syncStreamPanel,
     syncWsConfigPanel,
     syncPullConfigPanel,
   };
@@ -236,11 +208,6 @@ function trimTrailingSlashes(val) {
 function clampZoom(n) {
   if (!Number.isFinite(n)) return 100;
   return Math.min(200, Math.max(50, Math.round(n)));
-}
-
-function readStreamMode(getLS) {
-  const raw = (getLS('stream.mode', 'mjpeg') || '').toLowerCase();
-  return raw === 'webrtc' ? 'webrtc' : 'mjpeg';
 }
 
 function readViewZoom(getLS) {
@@ -288,10 +255,19 @@ function resolveWebrtcBaseInput(raw, defaultWebrtcBase) {
       const httpProto = window.location.protocol === 'https:' ? 'https:' : 'http:';
       target = new URL(`${httpProto}//${trimmed}`);
     }
-    const cleanPath = target.pathname.replace(/\/+$/, '');
-    const base = (!cleanPath || cleanPath === '')
-      ? trimTrailingSlashes(`${target.protocol}//${target.host}/iphone`)
-      : trimTrailingSlashes(`${target.protocol}//${target.host}${cleanPath}`);
+    let cleanPath = target.pathname.replace(/\/+$/, '') || '';
+    const loweredPath = cleanPath.toLowerCase();
+    if (loweredPath === '/stream' || loweredPath.startsWith('/stream/')
+      || loweredPath.includes('/stream/')
+      || loweredPath.endsWith('/stream')
+      || loweredPath === '/mjpeg' || loweredPath.startsWith('/mjpeg/')
+      || loweredPath.endsWith('.mjpeg')) {
+      return { ok: false, message: 'MJPEG 地址不支持 WebRTC，请输入 WebRTC 服务地址' };
+    }
+    if (!cleanPath || cleanPath === '' || cleanPath === '/') {
+      cleanPath = '/iphone';
+    }
+    const base = trimTrailingSlashes(`${target.protocol}//${target.host}${cleanPath}`);
     return { ok: true, base };
   } catch (err) {
     return { ok: false, message: err.message || 'invalid url' };

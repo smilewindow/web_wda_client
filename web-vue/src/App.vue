@@ -10,7 +10,6 @@
       @toggle-appium="toggleAppiumPanel"
       @toggle-device="toggleDevicePanel"
       @toggle-zoom="toggleZoomPanel"
-      @toggle-stream="toggleStreamPanel"
       @toggle-ws="toggleWsConfigPanel"
       @toggle-pull="togglePullConfigPanel"
       @change-preset="setStreamPreset"
@@ -23,12 +22,6 @@
       :visible="showZoomPanel"
       v-model="viewZoomPct"
       :label="viewZoomLabel"
-    />
-    <HudStreamPanel
-      v-if="isDev"
-      :visible="showStreamPanel"
-      v-model:mode="pendingStreamMode"
-      @apply="applyStreamSelection"
     />
     <WsConfigPanel
       v-if="isDev"
@@ -44,31 +37,38 @@
     />
 
     <div id="wrap">
-      <div id="phone" ref="phoneRef">
-        <img
-          id="stream"
-          ref="streamImgRef"
-          v-show="streamMode === 'mjpeg'"
-          :src="mjpegSrc || undefined"
-          alt="iPhone Stream"
-        />
-        <iframe
-          id="webrtc"
-          ref="webrtcRef"
-          v-show="streamMode === 'webrtc'"
-          :src="webrtcSrc || undefined"
-          allow="autoplay; fullscreen; picture-in-picture"
-          title="WebRTC Stream"
-        ></iframe>
-          <!-- <iframe
-          id="webrtc"
-          ref="webrtcRef"
-          src="http://127.0.0.1:8889/iphone/00008101-00061D481E61001E/"
-          allow="autoplay; fullscreen; picture-in-picture"
-          title="WebRTC Stream"
-        ></iframe> -->
-        <canvas id="overlay" ref="canvasRef"></canvas>
-        <div class="cursor" id="cursor" ref="cursorRef"></div>
+      <div class="stream-layout">
+        <div class="stream-pane">
+          <span class="stream-pane__title">主要流 · {{ activeStreamLabel }}</span>
+          <div class="stream-pane__frame">
+            <div id="phone" ref="phoneRef" class="phone-frame">
+              <iframe
+                id="webrtc"
+                ref="webrtcRef"
+                :src="webrtcSrc || undefined"
+                allow="autoplay; fullscreen; picture-in-picture"
+                title="WebRTC Stream"
+              ></iframe>
+              <canvas id="overlay" ref="canvasRef"></canvas>
+              <div class="cursor" id="cursor" ref="cursorRef"></div>
+            </div>
+          </div>
+        </div>
+        <div
+          class="stream-pane"
+          v-if="mjpegSrc"
+        >
+          <span class="stream-pane__title">对比流 · {{ comparisonStreamLabel }}</span>
+          <div class="stream-pane__frame">
+            <div class="stream-preview__frame" :style="previewFrameStyle">
+              <img
+                class="stream-preview__media"
+                :src="mjpegSrc || undefined"
+                alt="MJPEG 对比流"
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -106,7 +106,6 @@ import AppiumSettingsPanel from './components/AppiumSettingsPanel.vue';
 import DevicePanel from './components/DevicePanel.vue';
 import HudControlBar from './components/HudControlBar.vue';
 import HudZoomPanel from './components/HudZoomPanel.vue';
-import HudStreamPanel from './components/HudStreamPanel.vue';
 import WsConfigPanel from './components/WsConfigPanel.vue';
 import PullConfigPanel from './components/PullConfigPanel.vue';
 import GesturesPanel from './components/GesturesPanel.vue';
@@ -124,7 +123,6 @@ import { STREAM_PRESETS, DEFAULT_STREAM_PRESET, normalizeStreamPreset } from './
 
 const { pushToast } = useToastStore();
 const isDev = import.meta.env.DEV;
-const isProd = import.meta.env.PROD;
 
 function getParam(name) {
   try {
@@ -158,6 +156,7 @@ const streamReady = ref(false);
 const streamToastShown = ref(false);
 const streamPresetOptions = STREAM_PRESETS;
 const streamPreset = ref(normalizeStreamPreset(getLS('ap.streamPreset', DEFAULT_STREAM_PRESET)));
+const displaySize = reactive({ width: 0, height: 0 });
 
 function setStreamPreset(nextPreset) {
   const normalized = normalizeStreamPreset(nextPreset);
@@ -179,8 +178,6 @@ const transientPanelApi = { closeAll: () => {} };
 const panelApi = { close: () => {} };
 
 const {
-  streamMode,
-  pendingStreamMode,
   viewZoomPct,
   viewZoomLabel,
   wsHostPort,
@@ -191,10 +188,8 @@ const {
   webrtcSrc,
   applyStreamMode,
   reloadCurrentStream,
-  applyStreamSelection,
   applyWsConfig,
   applyStreamConfig,
-  syncStreamPanel,
   syncWsConfigPanel,
   syncPullConfigPanel,
 } = useStreamControls({
@@ -213,10 +208,21 @@ const {
   hasAppiumSession,
   apSessionId,
   streamReady,
-  streamToastShown,
   applyViewZoom,
-  isProd,
   onTransientPanelClose: () => transientPanelApi.closeAll(),
+});
+
+const activeStreamLabel = 'WebRTC';
+const comparisonStreamLabel = 'MJPEG';
+const previewFrameStyle = computed(() => {
+  const { width, height } = displaySize;
+  if (!width || !height) {
+    return {};
+  }
+  return {
+    width: `${width}px`,
+    height: `${height}px`,
+  };
 });
 
 const {
@@ -251,7 +257,6 @@ const {
   showDevicePanel,
   showGesturePanel,
   showZoomPanel,
-  showStreamPanel,
   showWsConfigPanel,
   showPullConfigPanel,
   openAppiumPanel,
@@ -260,7 +265,6 @@ const {
   toggleDevicePanel,
   toggleGesturePanel,
   toggleZoomPanel,
-  toggleStreamPanel,
   toggleWsConfigPanel,
   togglePullConfigPanel,
   closeTransientPanels,
@@ -278,9 +282,6 @@ const {
   onZoomOpen: () => {
     nextTick(() => applyViewZoom(viewZoomPct.value));
   },
-  onStreamOpen: () => {
-    syncStreamPanel();
-  },
   onWsConfigOpen: () => {
     syncWsConfigPanel();
   },
@@ -289,7 +290,6 @@ const {
   },
 });
 const phoneRef = ref(null);
-const streamImgRef = ref(null);
 const webrtcRef = ref(null);
 const canvasRef = ref(null);
 const cursorRef = ref(null);
@@ -329,7 +329,7 @@ function getDeviceAspect() {
 }
 
 function getDisplayEl() {
-  return streamMode.value === 'webrtc' ? webrtcRef.value : streamImgRef.value;
+  return webrtcRef.value;
 }
 
 function getContentRectInViewport() {
@@ -343,7 +343,6 @@ function getContentRectInViewport() {
   if (!frame) {
     return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
   }
-  if (streamMode.value !== 'webrtc') return frame;
   const ar = getDeviceAspect();
   if (!Number.isFinite(ar) || ar <= 0 || !frame.width || !frame.height) return frame;
   const fAR = frame.width / Math.max(1, frame.height);
@@ -385,15 +384,14 @@ function computeDisplaySize() {
 function updateDisplayLayout() {
   try {
     const { width, height } = computeDisplaySize();
+    const roundedWidth = Math.round(width);
+    const roundedHeight = Math.round(height);
+    displaySize.width = roundedWidth;
+    displaySize.height = roundedHeight;
     const phone = phoneRef.value;
     if (phone) {
-      phone.style.width = `${Math.round(width)}px`;
-      phone.style.height = `${Math.round(height)}px`;
-    }
-    const img = streamImgRef.value;
-    if (img) {
-      img.style.width = '100%';
-      img.style.height = '100%';
+      phone.style.width = `${roundedWidth}px`;
+      phone.style.height = `${roundedHeight}px`;
     }
     const webrtc = webrtcRef.value;
     if (webrtc) {
@@ -563,29 +561,21 @@ onMounted(() => {
   wsProxy.ensureConnection();
   window.addEventListener('resize', updateDisplayLayout);
 
-  const img = streamImgRef.value;
-  if (img) {
-    img.onload = () => {
-      streamReady.value = true;
-      updateCursor();
-      updateDisplayLayout();
-    };
-    img.onerror = () => {
-      console.warn('[stream] failed to load:', img.src);
-      streamReady.value = false;
-      updateCursor();
-      if (!streamToastShown.value) {
-        toast('画面流连接失败：请检查 MJPEG 是否可用（环境变量 MJPEG 需指向有效流，常见为 9100）。', 'err');
-        streamToastShown.value = true;
-      }
-    };
-  }
   const webrtc = webrtcRef.value;
   if (webrtc) {
     webrtc.onload = () => {
       streamReady.value = true;
       updateCursor();
       updateDisplayLayout();
+    };
+    webrtc.onerror = () => {
+      console.warn('[stream] failed to load WebRTC stream:', webrtc.src);
+      streamReady.value = false;
+      updateCursor();
+      if (!streamToastShown.value) {
+        toast('WebRTC 流连接失败：请检查拉流服务是否可用。', 'err');
+        streamToastShown.value = true;
+      }
     };
   }
   applyViewZoom(viewZoomPct.value);
